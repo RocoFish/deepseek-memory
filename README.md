@@ -27,16 +27,23 @@ history.
 dsh plugin --profile <name> add deepseek-memory
 ```
 
-From a git host, note the two-step build: a git install fetches sources, so the
-package's `prepare` script builds `lib/`, and pnpm refuses to run it until the
-build is allowlisted in the profile's `pnpm-workspace.yaml`.
+From a git host, the same one-liner:
 
 ```sh
 dsh plugin --profile <name> add github:<you>/deepseek-memory
-# then add the printed package key:
-#   allowBuilds:
-#     deepseek-memory: true
 ```
+
+There is no build step and no allowlist for you to deal with, because this
+repository **commits the compiled `lib/`** — a git install receives exactly what an
+npm install does. That is a deliberate trade: build output in version control is
+unusual, and it costs the maintainer a rebuild before each push, weighed against
+every user having to read a pnpm build-script error and hand-edit
+`pnpm-workspace.yaml` first. For a plugin meant to be installed by strangers, the
+install has to be one command.
+
+`package.json` still declares a `prepare` script, but it is conditional: it compiles
+only when `lib/` is missing and exits immediately otherwise, so an ordinary install
+never triggers it and never asks for an allowlist.
 
 Restart the profile afterwards.
 
@@ -317,10 +324,15 @@ either side.
 
 Two packaging properties are load-bearing and easy to lose:
 
-- **`lib/` must be in `files`.** It is gitignored, so a manifest that forgets it
-  publishes a package whose declared entry point does not exist.
-- **`prepublishOnly` rebuilds.** A stale `lib/` is a plugin that installs and then
-  behaves like an older version.
+- **`lib/` must be in `files`.** A manifest that forgets it publishes a package
+  whose declared entry point does not exist.
+- **`lib/` must be committed, and current.** It is tracked (see Install), so a push
+  that forgets to rebuild ships an older plugin to everyone installing from git.
+  `prepublishOnly` covers the npm side; the git side is on you:
+  `npm run build && git add lib && git commit`.
+
+That second point is the real cost of committing build output, and it is worth
+stating plainly rather than discovering after a release.
 
 ## Development
 

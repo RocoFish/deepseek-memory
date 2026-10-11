@@ -1,7 +1,10 @@
-# Dependencies and build output
+# Dependencies
 node_modules/
-lib/
 *.tsbuildinfo
+
+# `lib/` is deliberately NOT ignored: the compiled output is committed so a git
+# install works without pnpm's build-script allowlist. Rebuild and commit it
+# whenever `src/` changes — `npm run build`, then commit the result.
 
 # Local inspection copies of published SDK type definitions (see README)
 .sdk/

@@ -25,16 +25,20 @@
 dsh plugin --profile <name> add deepseek-memory
 ```
 
-从 git 源安装要注意**两步构建**：git 安装只拉源码，所以要靠包里的 `prepare` 脚本
-构建 `lib/`；而 pnpm 默认拒绝执行 git 依赖的构建脚本，需要先在 profile 的
-`pnpm-workspace.yaml` 里放行。
+从 git 源安装，同样是这一条命令：
 
 ```sh
 dsh plugin --profile <name> add github:<you>/deepseek-memory
-# 然后把 pnpm 打印的包名加进去：
-#   allowBuilds:
-#     deepseek-memory: true
 ```
+
+**没有构建步骤，也不需要你放行任何脚本**——因为本仓库**把编译产物 `lib/` 提交进了
+版本控制**，所以从 git 装和从 npm 装拿到的东西完全一样。这是一个有意的取舍：把构建产物
+放进版本控制并不常见，代价是维护者每次推送前要重新构建一次；换来的是每个使用者都不必先读
+一遍 pnpm 的构建脚本报错、再手工编辑 `pnpm-workspace.yaml`。一个要给别人装的插件，安装
+就得是一条命令。
+
+`package.json` 里仍然声明了 `prepare` 脚本，但它是有条件的：只在 `lib/` 缺失时才编译，
+否则立即退出——所以正常安装永远不会触发它，也永远不会要求放行。
 
 装完重启该 profile。
 
@@ -208,9 +212,12 @@ npm publish            # publishConfig.access 已经是 "public"
 
 有两个打包性质是承重的，而且很容易丢：
 
-- **`lib/` 必须在 `files` 里。** 它被 gitignore，所以忘了它的 manifest 会发布一个
-  "声明的入口文件不存在"的包。
-- **`prepublishOnly` 会重建。** 过期的 `lib/` 就是一个装上去却表现得像旧版本的插件。
+- **`lib/` 必须在 `files` 里。** 忘了它的 manifest 会发布一个"声明的入口文件不存在"的包。
+- **`lib/` 必须被提交，而且是最新的。** 它已被纳入版本控制（见"安装"一节），所以一次忘了
+  重新构建的推送，会把旧版插件发给所有从 git 安装的人。npm 那侧由 `prepublishOnly` 兜住；
+  git 那侧得靠你自己：`npm run build && git add lib && git commit`。
+
+第二点就是把构建产物纳入版本控制的真实代价，值得明说，而不是等发完版才发现。
 
 ## 开发
 
