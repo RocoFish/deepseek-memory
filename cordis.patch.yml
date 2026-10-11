@@ -1,0 +1,36 @@
+# Bundle patch for deepseek-memory: one row over the profile's existing layers.
+# Row order carries no load semantics, so a single insert is enough.
+#
+# Configuration lives here rather than in the plugin so a deployment can override
+# any key in its own profile `cordis.patch.yml` by targeting this row's id and
+# restating only what it changes.
+- insert:
+    - id: memory
+      name: 'deepseek-memory'
+      config:
+        # Two tiers: who the person is, and what this repository agreed.
+        user: true
+        project: true
+        # Ceilings. Memory is deliberately small; these are what remove the
+        # retrieval problem rather than merely bounding it.
+        maxEntries: 50
+        maxEntryChars: 500
+        injectChars: 4000
+        # Model-facing memory tools.
+        tools: true
+        # off | gated | always. `gated` pays for consolidation only when a turn
+        # shows a durable signal; `always` is faithful but costs a child per turn.
+        consolidation: gated
+        minTurnsBetweenRuns: 1
+        # Registered subagent provider the consolidator child runs on. A provider
+        # NAME, not a model route — different namespace.
+        consolidationSubagentProvider: in-process
+        # Keep the previous revision of each store, so a bad consolidation can be
+        # rolled back by hand.
+        keepHistory: true
+        # Wall-clock cap for one consolidation run.
+        consolidationTimeoutMs: 120000
+        # Only for the fallback path used when no subagent provider is mounted.
+        # Omit to reuse the session's own logged model route.
+        # consolidationRouteProvider: deepseek-official
+        # consolidationRouteModel: deepseek-flash

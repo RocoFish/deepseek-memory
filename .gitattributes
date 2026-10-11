@@ -1,0 +1,16 @@
+# Normalize line endings in the repository, so a Windows checkout and a Linux CI
+# checkout produce the same bytes. Without this, Git prints "LF will be replaced
+# by CRLF" on every file and a `git diff` can report whole-file rewrites that are
+# only line-ending noise.
+* text=auto eol=lf
+
+# Windows-only helper scripts must keep CRLF to run under cmd.exe.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets: never touch these.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff2 binary
