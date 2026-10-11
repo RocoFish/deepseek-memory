@@ -37,8 +37,13 @@ dsh plugin --profile <name> add github:<you>/deepseek-memory
 一遍 pnpm 的构建脚本报错、再手工编辑 `pnpm-workspace.yaml`。一个要给别人装的插件，安装
 就得是一条命令。
 
-`package.json` 里仍然声明了 `prepare` 脚本，但它是有条件的：只在 `lib/` 缺失时才编译，
-否则立即退出——所以正常安装永远不会触发它，也永远不会要求放行。
+也就是说，**本包刻意不声明 `prepare` 脚本。** pnpm 判断一个 git 依赖的构建脚本是否需要
+放行，靠的是 `package.json` 里**有没有这个条目**——在执行之前判断，且与里面写了什么无关。
+所以一个"`lib/` 已存在就直接退出"的条件式 `prepare` 照样会要求放行，这一点是实测出来的，
+不是推断。真正能去掉这一步的做法就是：提交 `lib/`，并删掉那个条目。`prepublishOnly` 仍然
+会在发布 npm 包时构建，那条路径不影响任何使用者。
+
+贡献者克隆仓库后没有 `lib/`（也可以自行删除），用 `npm install && npm run build` 构建即可。
 
 装完重启该 profile。
 

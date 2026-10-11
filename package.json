@@ -52,7 +52,6 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "prepare": "node scripts/build-if-needed.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"tests/**/*.test.ts\"",
     "test:sandbox": "node --import ./tests/register-hook.mjs tests/run.ts",

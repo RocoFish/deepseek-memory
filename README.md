@@ -41,9 +41,16 @@ every user having to read a pnpm build-script error and hand-edit
 `pnpm-workspace.yaml` first. For a plugin meant to be installed by strangers, the
 install has to be one command.
 
-`package.json` still declares a `prepare` script, but it is conditional: it compiles
-only when `lib/` is missing and exits immediately otherwise, so an ordinary install
-never triggers it and never asks for an allowlist.
+Which means **there is deliberately no `prepare` script.** pnpm decides whether a
+git dependency's build scripts need allowlisting by looking for that entry in
+`package.json` — before running it, and regardless of what it contains. A
+conditional `prepare` that exits immediately when `lib/` is present therefore still
+demands the allowlist, which was measured rather than assumed. Committing `lib/` and
+dropping the entry is what actually removes the step; `prepublishOnly` still builds
+for npm, where no consumer is affected.
+
+Contributors cloning the repository get no `lib/` (or can delete it) and build with
+`npm install && npm run build`.
 
 Restart the profile afterwards.
 
