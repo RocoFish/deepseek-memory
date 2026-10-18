@@ -31,6 +31,16 @@ test('parseProposal reads a bare object, a fenced block, and surrounding prose',
   assert.deepEqual(parseProposal('Sure!\n{"actions":[]}\nHope that helps.'), { actions: [] })
 })
 
+test('parseProposal can handle noisy model output and embedded brace content', () => {
+  const noisy = 'Here is the change set I want to apply.\n```json\n{"actions":[{"op":"add","tier":"project","text":"the repo uses the CLI tool"}]}\n```\nThis should be fine.'
+  assert.deepEqual(parseProposal(noisy), {
+    actions: [{ op: 'add', tier: 'project', text: 'the repo uses the CLI tool' }],
+  })
+
+  const stringWithBraces = 'The value is "{not json}" not a real object and then {"actions":[]}.'
+  assert.deepEqual(parseProposal(stringWithBraces), { actions: [] })
+})
+
 test('parseProposal returns undefined for junk instead of throwing', () => {
   for (const reply of ['', 'no json here', '{ broken', '[]', '{"actions":']) {
     assert.equal(parseProposal(reply), undefined, `expected undefined for ${JSON.stringify(reply)}`)
@@ -46,6 +56,9 @@ test('validateAction accepts the three real ops', () => {
   })
   assert.deepEqual(validateAction({ op: 'delete', tier: 'user', id: 'm1' }), {
     action: { op: 'delete', tier: 'user', id: 'm1' },
+  })
+  assert.deepEqual(validateAction({ op: 'none', tier: 'project' }), {
+    action: { op: 'none', tier: 'project' },
   })
 })
 
@@ -78,6 +91,28 @@ test('applyActions applies a valid set and reports each change', () => {
     assert.equal(applied.length, 2)
     assert.equal(box.runtime.store('project').size, 1)
     assert.equal(box.runtime.store('user').size, 1)
+  } finally { box.cleanup() }
+})
+
+test('applyActions isolates commit failures to the affected tier and keeps the rest of the change set', () => {
+  const box = sandbox()
+  try {
+    const originalCommit = box.runtime.commit.bind(box.runtime)
+    box.runtime.commit = ((tier: 'project' | 'user') => {
+      if (tier === 'project') throw new Error('disk full')
+      return originalCommit(tier)
+    }) as typeof box.runtime.commit
+
+    const { applied, rejected } = applyActions(box.runtime, [
+      { op: 'add', tier: 'project', text: 'a project fact' },
+      { op: 'add', tier: 'user', text: 'a user fact' },
+    ], 1000)
+
+    assert.equal(applied.length, 1)
+    assert.equal(rejected.length, 1)
+    assert.match(rejected[0]!, /commit project: disk full/)
+    assert.equal(box.runtime.store('user').size, 1)
+    assert.equal(box.runtime.store('project').size, 0)
   } finally { box.cleanup() }
 })
 
@@ -152,3 +187,4 @@ test('renderTranscript bounds the text handed to the model', () => {
   assert.ok(huge.length < 7000, `expected a bounded transcript, got ${huge.length}`)
   assert.match(huge, /truncated/)
 })
+

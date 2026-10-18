@@ -13,7 +13,7 @@
  *
  * @module deepseek-memory/runtime
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, fdatasyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
 import type { MemoryConfig } from './config.ts'
 import { MemoryError, MemoryStore, type MemoryEntry, type MemoryTier } from './store.ts'
@@ -185,7 +185,8 @@ export class MemoryRuntime {
         const historyDir = join(location.dir, HISTORY_DIR)
         mkdirSync(historyDir, { recursive: true })
         historyPath = join(historyDir, `${new Date(this.#now()).toISOString().replace(/[:.]/g, '-')}.json`)
-        writeFileSync(historyPath, readFileSync(location.file))
+        writeSync(openSync(historyPath, 'w', 0o600), readFileSync(location.file))
+        closeSync(openSync(historyPath, 'r'))
       } catch {
         // History is a convenience; losing it must never fail the write itself.
         historyPath = undefined
@@ -195,8 +196,14 @@ export class MemoryRuntime {
     // Temp file then rename: an interrupted write leaves the old file intact
     // rather than a truncated one.
     const payload = `${JSON.stringify(store.toFile(this.#now()), undefined, 2)}\n`
-    const temp = `${location.file}.tmp-${process.pid}`
-    writeFileSync(temp, payload, 'utf8')
+    const temp = `${location.file}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const fd = openSync(temp, 'w', 0o600)
+    try {
+      writeSync(fd, payload, null, 'utf8')
+      fdatasyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
     renameSync(temp, location.file)
     return historyPath === undefined ? { revision: store.revision } : { revision: store.revision, historyPath }
   }
@@ -224,3 +231,4 @@ export class MemoryRuntime {
 export function tierDirFor(tier: MemoryTier, dshHome: string | undefined, cwd: string | null | undefined): string {
   return tier === 'project' ? join(cwd ?? '', PROJECT_MEMORY_DIR) : join(dshHome ?? '', USER_MEMORY_DIR)
 }
+

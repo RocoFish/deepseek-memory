@@ -120,18 +120,84 @@ async function requestProposal(
   return text
 }
 
+function extractTopLevelJson(reply: string): string | undefined {
+  const fencedJson = /```json\s*([\s\S]*?)```/i.exec(reply)
+  if (fencedJson?.[1] !== undefined) {
+    try {
+      JSON.parse(fencedJson[1])
+      return fencedJson[1]
+    } catch {
+      // continue on to the next candidate
+    }
+  }
+
+  const fencedBlocks = [...reply.matchAll(/```([\s\S]*?)```/g)].map(match => match[1]).reverse()
+  for (const block of fencedBlocks) {
+    try {
+      JSON.parse(block)
+      return block
+    } catch {
+      // continue trying other candidates
+    }
+  }
+
+  const start = reply.indexOf('{')
+  if (start === -1) return undefined
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let index = start; index < reply.length; index++) {
+    const character = reply[index]
+
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (character === '\\') {
+        escaped = true
+      } else if (character === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (character === '"') {
+      inString = true
+      continue
+    }
+
+    if (character === '{') {
+      depth += 1
+      continue
+    }
+
+    if (character === '}') {
+      depth -= 1
+      if (depth === 0) {
+        const candidate = reply.slice(start, index + 1)
+        try {
+          JSON.parse(candidate)
+          return candidate
+        } catch {
+          return undefined
+        }
+      }
+    }
+  }
+
+  return undefined
+}
+
 /**
- * Extract the JSON object from a model reply, tolerating a fenced block.
+ * Extract the JSON object from a model reply, tolerating fenced blocks and surrounding prose.
  * @returns the parsed value, or undefined when no object could be read.
  */
 export function parseProposal(reply: string): unknown {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(reply)
-  const candidate = (fenced?.[1] ?? reply).trim()
-  const start = candidate.indexOf('{')
-  const end = candidate.lastIndexOf('}')
-  if (start === -1 || end <= start) return undefined
+  const candidate = extractTopLevelJson(reply)
+  if (candidate === undefined) return undefined
   try {
-    return JSON.parse(candidate.slice(start, end + 1))
+    return JSON.parse(candidate)
   } catch {
     return undefined
   }
@@ -144,6 +210,10 @@ export function validateAction(raw: unknown): { action: ProposedAction } | { ref
   const op = record.op
   const tier = record.tier
   if (tier !== 'user' && tier !== 'project') return { refusal: `unknown tier ${JSON.stringify(tier)}` }
+
+  if (op === 'none') {
+    return { action: { op: 'none', tier, } }
+  }
 
   if (op === 'add') {
     if (typeof record.text !== 'string' || record.text.trim() === '') return { refusal: 'add without text' }
@@ -206,7 +276,15 @@ export function applyActions(
     }
   }
 
-  for (const tier of touched) runtime.commit(tier)
+  for (const tier of touched) {
+    try {
+      runtime.commit(tier)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      rejected.push(`commit ${tier}: ${detail}`)
+    }
+  }
+
   return { applied, rejected }
 }
 
@@ -414,3 +492,4 @@ async function consolidateChild(
     controller.abort()
   }
 }
+
