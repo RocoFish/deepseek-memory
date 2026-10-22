@@ -144,7 +144,7 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
         if (!result.created) {
           return `Already remembered as ${result.entry.id} in ${tier} memory; nothing changed.`
         }
-        runtime.commit(tier)
+        runtime.commit(tier, store)
         return `Stored ${result.entry.id} in ${tier} memory (${store.size} entries used).`
       },
     }),
@@ -162,14 +162,15 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
       output: textOutput(),
       async execute(args) {
         const tier = resolveTier(runtime, args.tier ?? 'auto')
-        const updated = runtime.store(tier).update({
+        const store = runtime.store(tier)
+        const updated = store.update({
           id: args.id,
           text: args.text,
           tags: args.tags,
           origin: 'user',
           now: Date.now(),
         })
-        runtime.commit(tier)
+        runtime.commit(tier, store)
         return `Updated ${updated.id} in ${tier} memory: ${updated.text}`
       },
     }),
@@ -184,8 +185,9 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
       output: textOutput(),
       async execute(args) {
         const tier = resolveTier(runtime, args.tier ?? 'auto')
-        const removed = runtime.store(tier).remove(args.id, Date.now())
-        runtime.commit(tier)
+        const store = runtime.store(tier)
+        const removed = store.remove(args.id, Date.now())
+        runtime.commit(tier, store)
         return `Forgot ${removed.id} from ${tier} memory.`
       },
     }),
