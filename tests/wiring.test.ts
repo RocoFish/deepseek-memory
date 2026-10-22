@@ -250,6 +250,31 @@ test('a closed turn with a durable signal starts a narrowed child agent', async 
   } finally { started.restore(); started.dispose(); handle.cleanup() }
 })
 
+test('minTurnsBetweenRuns spaces two runs by whole closed turns', async () => {
+  const handle = makeCtx()
+  const started = await start(handle, configFixture({ minTurnsBetweenRuns: 2 }))
+  try {
+    const turn = (seqBase: number) => {
+      handle.emitSession('session-1', userEvent('记住我们的构建用 tsc', seqBase))
+      handle.emitSession('session-1', assistantEvent('好。', seqBase + 1))
+      handle.emitStatus('session-1')
+      return settle()
+    }
+
+    await turn(1)
+    assert.equal(handle.childCalls.length, 1, 'the first run may happen immediately')
+
+    await turn(10)
+    assert.equal(handle.childCalls.length, 1, 'only one closed turn has passed since the run; no second run yet')
+
+    await turn(20)
+    assert.equal(handle.childCalls.length, 2, 'two closed turns have passed since the run; it may run again')
+
+    await turn(30)
+    assert.equal(handle.childCalls.length, 2, 'the interval restarts from each run, not from the session start')
+  } finally { started.restore(); started.dispose(); handle.cleanup() }
+})
+
 test('a closed turn with no durable signal starts nothing at all', async () => {
   const handle = makeCtx()
   const started = await start(handle)
