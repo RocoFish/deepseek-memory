@@ -246,3 +246,69 @@ test('memory_status re-reads from disk, so it can explain a store that changed u
     assert.match(String(await tool.execute({}, {})), /UNREADABLE/)
   } finally { box.cleanup() }
 })
+
+test('a commit refuses to persist a store the runtime no longer owns', () => {
+  const box = sandbox()
+  try {
+    const stale = box.runtime.store('project')
+    stale.add({ text: 'written before a refresh', origin: 'user', now: 1 })
+
+    // A refresh drops the cache; the stale object is no longer the runtime's.
+    box.runtime.refresh()
+
+    assert.throws(
+      () => box.runtime.commit('project', stale),
+      (error: unknown) => error instanceof Error && 'code' in error && (error as { code: string }).code === 'MEMORY_STORE_STALE',
+    )
+    const file = join(box.cwd, PROJECT_MEMORY_DIR, STORE_FILE)
+    assert.equal(existsSync(file), false, 'the refused write must not have landed')
+    assert.equal(box.runtime.store('project').size, 0, 'the dropped cache must observe the empty disk truth')
+  } finally { box.cleanup() }
+})
+
+test('a commit refuses to overwrite entries committed by another process', () => {
+  const box = sandbox()
+  try {
+    box.runtime.store('project').add({ text: 'fact from this session', origin: 'user', now: 1 })
+    box.runtime.commit('project')
+    const file = join(box.cwd, PROJECT_MEMORY_DIR, STORE_FILE)
+
+    // Another process loads the file, adds its own entry, and commits, bumping
+    // the revision. This session's cached store still shows the older revision.
+    const foreign = JSON.parse(readFileSync(file, 'utf8'))
+    foreign.revision += 1
+    foreign.updatedAt = 2000
+    foreign.entries.push({ id: 'foreign', text: 'fact from another process', tags: [], createdAt: 2000, updatedAt: 2000, origin: 'user' })
+    writeFileSync(file, JSON.stringify(foreign))
+
+    const local = box.runtime.store('project')
+    local.add({ text: 'a later local fact', origin: 'user', now: 2 })
+    assert.throws(
+      () => box.runtime.commit('project', local),
+      (error: unknown) => error instanceof Error && 'code' in error && (error as { code: string }).code === 'MEMORY_STORE_CONFLICT',
+    )
+
+    // The other writer's entry survives, the refused local write is absent, and
+    // the dropped cache means the next read sees the on-disk truth.
+    const onDisk = JSON.parse(readFileSync(file, 'utf8'))
+    assert.equal(onDisk.entries.length, 2, 'the disk keeps both the original and the foreign entry')
+    assert.ok(onDisk.entries.some((entry: { id: string }) => entry.id === 'foreign'), 'the foreign entry must survive')
+    assert.ok(!onDisk.entries.some((entry: { text: string }) => entry.text === 'a later local fact'),
+      'the refused write must not have landed')
+    assert.equal(box.runtime.store('project').size, 2)
+  } finally { box.cleanup() }
+})
+
+test('sequential commits in one process never trip the conflict guard', () => {
+  const box = sandbox()
+  try {
+    const store = box.runtime.store('project')
+    store.add({ text: 'first', origin: 'user', now: 1 })
+    box.runtime.commit('project', store)
+    store.add({ text: 'second', origin: 'user', now: 2 })
+    box.runtime.commit('project', store)
+
+    const reopened = new MemoryRuntime(config, box.home, box.cwd, () => 1000)
+    assert.equal(reopened.store('project').size, 2)
+  } finally { box.cleanup() }
+})

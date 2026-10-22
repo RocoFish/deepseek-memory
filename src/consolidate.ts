@@ -24,7 +24,7 @@ import type { MemoryConfig } from './config.ts'
 import { describeDecision, evaluateGate, type GateDecision } from './gate.ts'
 import { createMemoryUserMessage } from './message.ts'
 import type { MemoryRuntime } from './runtime.ts'
-import { MemoryError, type MemoryTier } from './store.ts'
+import { MemoryError, type MemoryStore, type MemoryTier } from './store.ts'
 import { runChildConsolidation, type SubagentConsolidator } from './subagent.ts'
 
 /** Hard cap on proposals applied from one run, so one bad run cannot rewrite a whole store. */
@@ -178,7 +178,7 @@ export function applyActions(
 ): { applied: string[]; rejected: string[] } {
   const applied: string[] = []
   const rejected: string[] = []
-  const touched = new Set<MemoryTier>()
+  const touched = new Map<MemoryTier, MemoryStore>()
 
   for (const action of actions) {
     const tier = action.op === 'none' ? undefined : action.tier
@@ -199,14 +199,14 @@ export function applyActions(
         const entry = store.remove(action.id, now)
         applied.push(`delete ${tier} ${entry.id}`)
       }
-      touched.add(tier)
+      touched.set(tier, store)
     } catch (error) {
       const detail = error instanceof MemoryError ? error.message : String(error)
       rejected.push(`${action.op} ${tier}: ${detail}`)
     }
   }
 
-  for (const tier of touched) runtime.commit(tier)
+  for (const [tier, store] of touched) runtime.commit(tier, store)
   return { applied, rejected }
 }
 
@@ -374,10 +374,6 @@ async function consolidateChild(
   // child instantly. The run gets its own controller, released when it settles.
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), child.timeoutMs)
-  const revisionBefore = deps.runtime.enabledTiers()
-    .reduce((sum, tier) => sum + deps.runtime.store(tier).revision, 0)
-  const entriesBefore = deps.runtime.enabledTiers()
-    .reduce((sum, tier) => sum + deps.runtime.store(tier).size, 0)
 
   try {
     const outcome = await runChildConsolidation(
@@ -392,8 +388,7 @@ async function consolidateChild(
     )
 
     const applied = outcome.changed
-      ? [`store moved: ${outcome.revisionBefore}→${outcome.revisionAfter} revision, ${entriesBefore}→${
-        deps.runtime.enabledTiers().reduce((sum, tier) => sum + deps.runtime.store(tier).size, 0)} entries`]
+      ? [`store moved: ${outcome.revisionBefore}→${outcome.revisionAfter} revision`]
       : []
     const rejected: string[] = []
     if (!outcome.completed) rejected.push(outcome.diagnostic ?? 'child did not complete')
@@ -404,7 +399,6 @@ async function consolidateChild(
     } else if (outcome.completed) {
       deps.log(`consolidator found nothing to keep (${reason})`)
     }
-    void revisionBefore
     return { ran: true, reason, applied, rejected }
   } catch (error) {
     deps.warn(`child consolidation failed: ${error instanceof Error ? error.message : String(error)}`)

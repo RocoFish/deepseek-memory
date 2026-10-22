@@ -367,6 +367,11 @@ unnecessary, and the plugin's own `lib/` needs no hook at all.
   neither, consolidation is skipped rather than guessing a model.
 - **Consolidation runs in-process and is not queued.** One run per session at a
   time; a crash mid-run loses that run's changes, never a committed store.
+- **Concurrent writers are refused, not merged.** If another process commits the
+  same tier after this one loaded it (two harness windows on one project, say),
+  the write is refused with `MEMORY_STORE_CONFLICT` and the stale cache is
+  dropped, rather than silently overwriting the other writer's entries. Hand
+  edits that do not bump `revision` are still invisible until a `refresh()`.
 - **The gate is a heuristic over text.** It reads user and assistant text only; it
   cannot see whether a turn was *important*, just whether it *sounded* durable.
 - **No dedup against near-identical entries.** Two differently-worded versions of

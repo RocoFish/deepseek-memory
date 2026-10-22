@@ -53,9 +53,24 @@ export declare class MemoryRuntime {
     refresh(): void;
     /**
      * Atomically commit one tier's current state, keeping the previous revision.
+     *
+     * Two refusal guards, both cheaper than the failures they prevent:
+     *
+     * - `expected` — the exact store object the caller mutated. If the runtime's
+     *   cache was dropped (a `refresh()`) between the caller's mutation and this
+     *   commit, the mutations were made to a store the runtime no longer owns, and
+     *   persisting here would silently resurrect stale state. Refuse instead.
+     * - disk revision — if the file on disk was committed by another process since
+     *   this store was loaded, persisting would overwrite entries this process
+     *   never saw (a lost update). Refuse instead.
+     *
+     * Both refusals drop the tier's cached copy so the next read observes the
+     * on-disk truth, and throw a {@link MemoryError} whose message the model (or a
+     * retry loop) can act on.
      * @param tier - which store to persist.
+     * @param expected - the store object the caller mutated, when the caller holds one.
      */
-    commit(tier: MemoryTier): CommitResult | undefined;
+    commit(tier: MemoryTier, expected?: MemoryStore): CommitResult | undefined;
     /** Convenience: the entry list a tool should show for one tier. */
     list(tier: MemoryTier, query?: string): MemoryEntry[];
     /** Diagnose where each tier lives, for `memory_status` and for logs. */

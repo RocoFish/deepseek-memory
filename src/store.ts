@@ -120,6 +120,15 @@ export class MemoryStore {
   #revision = 0
   #updatedAt = 0
   #source = 'empty'
+  /**
+   * The revision this in-memory state was loaded from (or last persisted at).
+   *
+   * `commit` compares this against the revision actually on disk, so a write
+   * that would overwrite another process's committed entries is refused instead
+   * of silently dropping them. Mutations bump {@link MemoryStore.revision} but
+   * never this — the disk has not moved until a commit lands.
+   */
+  #diskRevision = 0
 
   /** Which tier this store represents. */
   readonly tier: MemoryTier
@@ -142,6 +151,22 @@ export class MemoryStore {
   /** Current committed revision. */
   get revision(): number {
     return this.#revision
+  }
+
+  /**
+   * The revision this state was loaded from (or last persisted at).
+   *
+   * Compare against the on-disk file before writing: a mismatch means another
+   * writer committed in between, and the write must be refused rather than
+   * overwrite entries this process never saw.
+   */
+  get diskRevision(): number {
+    return this.#diskRevision
+  }
+
+  /** Record that the current state is now persisted at its {@link MemoryStore.revision}. */
+  markPersisted(): void {
+    this.#diskRevision = this.#revision
   }
 
   /** When this store was last mutated, epoch milliseconds, or 0 for a fresh store. */
@@ -200,6 +225,7 @@ export class MemoryStore {
     }
     this.#entries = loaded
     this.#revision = typeof file.revision === 'number' ? file.revision : 0
+    this.#diskRevision = this.#revision
     this.#updatedAt = typeof file.updatedAt === 'number' ? file.updatedAt : 0
     this.#source = source
   }

@@ -75,10 +75,23 @@ interface TurnState {
   /** The turn currently being assembled. */
   user: string[]
   assistant: string[]
-  /** Turns that have closed on this session, used for the run-interval guard. */
-  closedTurns: number
-  /** Wall-clock of the last consolidator run, used by the alternative interval guard. */
-  lastRunAt: number
+  /**
+   * Closed turns since the last consolidator run on this session — the
+   * run-interval guard. Counted up when a turn closes (a new user message
+   * arrives with assistant text pending) and reset to zero when a run starts,
+   * so `minTurnsBetweenRuns` is a true interval rather than an ever-growing
+   * session total.
+   */
+  turnsSinceRun: number
+  /** Whether the first consolidator run has happened on this session. */
+  hasRun: boolean
+  /**
+   * Whether the current capture has already been fed to a consolidator run.
+   * A turn's capture is folded away only by the next turn's opening user
+   * message; without this flag a second `idle` for the same turn would run
+   * the consolidator twice on identical text.
+   */
+  consumed: boolean
   /** Whether a consolidation is in flight, so one session cannot stack runs. */
   running: boolean
   /** The session's own model route, learned from its logged request headers. */
@@ -211,7 +224,7 @@ export function apply(ctx: Context, rawConfig?: unknown): () => void {
   const turnState = (sessionId: string): TurnState => {
     const existing = turns.get(sessionId)
     if (existing !== undefined) return existing
-    const created: TurnState = { user: [], assistant: [], closedTurns: 0, lastRunAt: 0, running: false, route: undefined }
+    const created: TurnState = { user: [], assistant: [], turnsSinceRun: 0, hasRun: false, consumed: false, running: false, route: undefined }
     turns.set(sessionId, created)
     return created
   }
@@ -301,9 +314,10 @@ export function apply(ctx: Context, rawConfig?: unknown): () => void {
       // A new user message opens a turn: fold the previous turn's capture away
       // rather than letting it grow without bound.
       if (state.user.length > 0 && state.assistant.length > 0) {
-        state.closedTurns += 1
+        state.turnsSinceRun += 1
         state.user = []
         state.assistant = []
+        state.consumed = false
       }
       state.user.push(contribution.text)
     } else {
@@ -331,14 +345,20 @@ export function apply(ctx: Context, rawConfig?: unknown): () => void {
     if (sessionId === undefined) return
     const turn = turns.get(sessionId)
     if (turn === undefined || turn.running) return
-    if (turn.user.length === 0) return
-    if (turn.closedTurns < config.minTurnsBetweenRuns && turn.lastRunAt !== 0) return
+    if (turn.user.length === 0 || turn.consumed) return
+    // The first run is allowed to happen immediately; after that, at least
+    // `minTurnsBetweenRuns` closed turns must pass between two runs. Counting
+    // turns *since the last run* — rather than a session-lifetime total — is
+    // what makes the configured interval actually hold.
+    if (turn.hasRun && turn.turnsSinceRun < config.minTurnsBetweenRuns) return
 
     const capture: TurnCapture = { userTexts: [...turn.user], assistantTexts: [...turn.assistant] }
-    turn.user = []
-    turn.assistant = []
+    // The capture is folded away only by the next turn's opening user message;
+    // this flag just records that consolidation already saw it.
+    turn.consumed = true
     turn.running = true
-    turn.lastRunAt = Date.now()
+    turn.hasRun = true
+    turn.turnsSinceRun = 0
 
     void consolidateTurn({
       runtime,
@@ -363,9 +383,6 @@ export function apply(ctx: Context, rawConfig?: unknown): () => void {
         },
       }),
     }, capture)
-      .then((outcome) => {
-        if (outcome.ran) turn.closedTurns += 1
-      })
       .catch((error: unknown) => {
         warn(`consolidation crashed: ${error instanceof Error ? error.message : String(error)}`)
       })

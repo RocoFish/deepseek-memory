@@ -94,6 +94,16 @@ export declare class MemoryStore {
     get source(): string;
     /** Current committed revision. */
     get revision(): number;
+    /**
+     * The revision this state was loaded from (or last persisted at).
+     *
+     * Compare against the on-disk file before writing: a mismatch means another
+     * writer committed in between, and the write must be refused rather than
+     * overwrite entries this process never saw.
+     */
+    get diskRevision(): number;
+    /** Record that the current state is now persisted at its {@link MemoryStore.revision}. */
+    markPersisted(): void;
     /** When this store was last mutated, epoch milliseconds, or 0 for a fresh store. */
     get updatedAt(): number;
     /** Number of live entries. */

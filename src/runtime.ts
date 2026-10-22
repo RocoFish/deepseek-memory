@@ -172,11 +172,57 @@ export class MemoryRuntime {
 
   /**
    * Atomically commit one tier's current state, keeping the previous revision.
+   *
+   * Two refusal guards, both cheaper than the failures they prevent:
+   *
+   * - `expected` — the exact store object the caller mutated. If the runtime's
+   *   cache was dropped (a `refresh()`) between the caller's mutation and this
+   *   commit, the mutations were made to a store the runtime no longer owns, and
+   *   persisting here would silently resurrect stale state. Refuse instead.
+   * - disk revision — if the file on disk was committed by another process since
+   *   this store was loaded, persisting would overwrite entries this process
+   *   never saw (a lost update). Refuse instead.
+   *
+   * Both refusals drop the tier's cached copy so the next read observes the
+   * on-disk truth, and throw a {@link MemoryError} whose message the model (or a
+   * retry loop) can act on.
    * @param tier - which store to persist.
+   * @param expected - the store object the caller mutated, when the caller holds one.
    */
-  commit(tier: MemoryTier): CommitResult | undefined {
+  commit(tier: MemoryTier, expected?: MemoryStore): CommitResult | undefined {
     const store = this.store(tier)
     const location = this.#location(tier)
+
+    if (expected !== undefined && expected !== store) {
+      this.#stores.delete(tier)
+      throw new MemoryError(
+        `the ${tier} memory store was refreshed mid-write, so the pending change was made against a state this session no longer holds. The write was refused rather than risk overwriting newer state; re-read the store and retry.`,
+        'MEMORY_STORE_STALE',
+      )
+    }
+
+    if (existsSync(location.file)) {
+      let diskRevision: number | undefined
+      try {
+        const parsed = JSON.parse(readFileSync(location.file, 'utf8')) as { revision?: unknown }
+        if (typeof parsed?.revision === 'number') diskRevision = parsed.revision
+      } catch {
+        // An unparseable file is left to the write path below: atomic rename
+        // replaces it whole, which is the same recovery `memory_status` reports.
+        diskRevision = undefined
+      }
+      if (diskRevision !== undefined && diskRevision !== store.diskRevision) {
+        // Another process committed this tier after we loaded it. Their entries
+        // are real; dropping them silently is the failure a memory store must
+        // not have. Drop the stale cache so the next read sees the truth.
+        this.#stores.delete(tier)
+        throw new MemoryError(
+          `the ${tier} memory store was changed by another process since this session loaded it (disk revision ${diskRevision}, loaded revision ${store.diskRevision}). The write was refused instead of overwriting the other writer's entries; re-read the store, merge, and retry.`,
+          'MEMORY_STORE_CONFLICT',
+        )
+      }
+    }
+
     mkdirSync(location.dir, { recursive: true })
 
     let historyPath: string | undefined
@@ -198,6 +244,7 @@ export class MemoryRuntime {
     const temp = `${location.file}.tmp-${process.pid}`
     writeFileSync(temp, payload, 'utf8')
     renameSync(temp, location.file)
+    store.markPersisted()
     return historyPath === undefined ? { revision: store.revision } : { revision: store.revision, historyPath }
   }
 
