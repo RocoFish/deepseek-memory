@@ -2,6 +2,25 @@
 
 Notable changes to `deepseek-memory`. Versions follow [semver](https://semver.org/).
 
+## Unreleased
+
+**Fixed**
+
+- `minTurnsBetweenRuns` now actually spaces two consolidator runs: the guard
+  counted a session-lifetime total of closed turns (and the run itself bumped
+  it), so after the first run the interval was permanently satisfied and every
+  durable-signal turn paid a consolidation call. Turns are now counted since
+  the last run and reset when one starts; the turn that feeds a run no longer
+  eats the next turn's count.
+- A write is no longer silently lost when the store cache is dropped between a
+  tool's mutation and its commit (`memory_status` refreshes mid-consolidation,
+  for example). `commit` now takes the caller's store object and refuses with
+  `MEMORY_STORE_STALE` when the runtime no longer owns it.
+- Committing a tier that another process changed on disk since load is now
+  refused with `MEMORY_STORE_CONFLICT` instead of silently overwriting the
+  other writer's entries; the stale cache is dropped so the next read sees the
+  truth.
+
 ## 0.1.0
 
 First release.
@@ -28,20 +47,3 @@ First release.
   are implemented locally; `tests/define.test.ts` asserts the vendored tool helper
   produces byte-identical schemas to the real SDK one, and `tests/packaging.test.ts`
   enforces the no-bare-import rule.
-- Storage is plain JSON with atomic writes and the previous revision kept under
-  `history/`.
-
-**Notable fixes found by running against a real harness**
-
-- `inject` must name the services the plugin uses. An empty list leaves the entire
-  service registry unreachable — the plugin loads, reports as running, and silently
-  registers nothing. This shipped broken in early builds of this version, and the
-  wiring test had asserted the empty list, locking the bug in.
-- The project tier takes its directory from the session's own recorded `cwd`, not
-  `process.cwd()`. The latter describes how the host was launched; in the packaged
-  app it is the application's own config directory, so project memory was written
-  there instead of into the user's workspace.
-- The user tier resolves the harness home from several candidates rather than
-  `DSH_HOME` alone, since the desktop host process does not carry that variable.
-  `memory_status` reports which source was used, and reports a disabled tier
-  explicitly so it cannot be mistaken for an empty one.
