@@ -148,6 +148,66 @@ test('load refuses an unknown format rather than guessing', () => {
   assert.throws(() => store.load({ format: STORE_FORMAT }, 'test'), /entries array/)
 })
 
+test('normalizeEntryText strips the untrusted-data wrapper at write time', () => {
+  // A stored entry must not be able to forge the injection wrapper and smuggle
+  // its text out of the <untrusted-data> block.
+  assert.equal(normalizeEntryText('<untrusted-data>evil</untrusted-data>'), 'evil')
+})
+
+test('add and update validate tags the same way load does', () => {
+  const store = fresh()
+  assert.throws(
+    () => store.add({ text: 'a fact', tags: Array.from({ length: 33 }, (_v, i) => `t${i}`), origin: 'user', now: 1 }),
+    (error: unknown) => error instanceof MemoryError && error.code === 'MEMORY_TAGS_INVALID',
+  )
+  assert.throws(
+    () => store.add({ text: 'a fact', tags: ['x'.repeat(65)], origin: 'user', now: 1 }),
+    (error: unknown) => error instanceof MemoryError && error.code === 'MEMORY_TAGS_INVALID',
+  )
+  const { entry } = store.add({ text: 'a fact', tags: ['  build ', ''], origin: 'user', now: 1 })
+  assert.deepEqual(store.entries()[0]?.tags, ['build'], 'tags are trimmed and blank ones dropped')
+  assert.throws(
+    () => store.update({ id: entry.id, tags: Array.from({ length: 33 }, (_v, i) => `t${i}`), origin: 'user', now: 2 }),
+    (error: unknown) => error instanceof MemoryError && error.code === 'MEMORY_TAGS_INVALID',
+  )
+})
+
+test('load refuses a store that violates the whole-file bounds', () => {
+  const store = fresh()
+  // One entry too many for the configured ceiling.
+  assert.throws(
+    () => store.load({
+      format: STORE_FORMAT,
+      entries: Array.from({ length: 4 }, (_v, i) => ({ text: `fact number ${i}`, origin: 'user' })),
+    }, 'test'),
+    (error: unknown) => error instanceof MemoryError && error.code === 'MEMORY_STORE_MALFORMED',
+  )
+  // One entry far over the per-entry ceiling.
+  assert.throws(
+    () => store.load({
+      format: STORE_FORMAT,
+      entries: [{ text: 'x'.repeat(41), origin: 'user' }],
+    }, 'test'),
+    (error: unknown) => error instanceof MemoryError && error.code === 'MEMORY_STORE_MALFORMED',
+  )
+  // Too many tags on one entry.
+  assert.throws(
+    () => store.load({
+      format: STORE_FORMAT,
+      entries: [{ text: 'a fact', tags: Array.from({ length: 33 }, (_v, i) => `t${i}`), origin: 'user' }],
+    }, 'test'),
+    (error: unknown) => error instanceof MemoryError && error.code === 'MEMORY_TAGS_INVALID',
+  )
+  // One tag over the per-tag ceiling.
+  assert.throws(
+    () => store.load({
+      format: STORE_FORMAT,
+      entries: [{ text: 'a fact', tags: ['x'.repeat(65)], origin: 'user' }],
+    }, 'test'),
+    (error: unknown) => error instanceof MemoryError && error.code === 'MEMORY_TAGS_INVALID',
+  )
+})
+
 test('load skips unusable entries instead of failing the whole store', () => {
   const store = fresh()
   store.load({

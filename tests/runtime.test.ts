@@ -8,10 +8,10 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MemoryRuntime, PROJECT_MEMORY_DIR, STORE_FILE, USER_MEMORY_DIR } from '../src/runtime.ts'
+import { LOCK_FILE, MAX_HISTORY_FILES, MemoryRuntime, PROJECT_MEMORY_DIR, STORE_FILE, USER_MEMORY_DIR } from '../src/runtime.ts'
 import { createMemoryTools } from '../src/tools.ts'
 import { STORE_FORMAT } from '../src/store.ts'
 import type { MemoryConfig } from '../src/config.ts'
@@ -312,3 +312,63 @@ test('sequential commits in one process never trip the conflict guard', () => {
     assert.equal(reopened.store('project').size, 2)
   } finally { box.cleanup() }
 })
+
+test('history is pruned to a bounded count and size', () => {
+  // More commits than the fixture's default tier cap, so the tier ceiling is
+  // raised for this test and the history ceiling stays the thing under test.
+  // A mutable clock gives every backup its own timestamped name.
+  const box = sandbox({ maxEntries: 50 })
+  try {
+    let clock = 1_000
+    const runtime = new MemoryRuntime({ ...config, maxEntries: 50 }, box.home, box.cwd, () => clock)
+    const store = runtime.store('project')
+    store.add({ text: 'the rotating fact', origin: 'user', now: clock })
+    runtime.commit('project', store)
+    const id = store.entries()[0]!.id
+    for (let i = 0; i < 25; i += 1) {
+      clock += 1_000
+      store.update({ id, text: `the rotating fact v${i}`, origin: 'user', now: clock })
+      runtime.commit('project', store)
+    }
+    const historyDir = join(box.cwd, PROJECT_MEMORY_DIR, 'history')
+    assert.ok(exaddirSafe(historyDir).length <= MAX_HISTORY_FILES, 'history must be pruned to the file cap')
+    assert.ok(!existsSync(join(box.cwd, PROJECT_MEMORY_DIR, LOCK_FILE)), 'the lock file is released after a commit')
+  } finally { box.cleanup() }
+})
+
+test('a stale lock left by a crashed process is reclaimed, a live one is not', () => {
+  const box = sandbox()
+  try {
+    const store = box.runtime.store('project')
+    store.add({ text: 'fact before the crash', origin: 'user', now: 1 })
+    box.runtime.commit('project', store)
+
+    // A lock whose mtime is far in the past belongs to a dead writer.
+    const staleLock = join(box.cwd, PROJECT_MEMORY_DIR, LOCK_FILE)
+    writeFileSync(staleLock, '999999\n')
+    const past = new Date(Date.now() - 60_000)
+    utimesSync(staleLock, past, past)
+    store.add({ text: 'fact after the crash', origin: 'user', now: 2 })
+    box.runtime.commit('project', store)
+    assert.equal(JSON.parse(readFileSync(join(box.cwd, PROJECT_MEMORY_DIR, STORE_FILE), 'utf8')).entries.length, 2)
+
+    // A fresh lock blocks the commit until the wait budget runs out.
+    writeFileSync(staleLock, '999999\n')
+    assert.throws(
+      () => {
+        store.add({ text: 'one fact too far', origin: 'user', now: 3 })
+        box.runtime.commit('project', store)
+      },
+      (error: unknown) => error instanceof Error && 'code' in error && (error as { code: string }).code === 'MEMORY_STORE_LOCKED',
+    )
+    rmSync(staleLock, { force: true })
+  } finally { box.cleanup() }
+})
+
+function exaddirSafe(dir: string): string[] {
+  try {
+    return readdirSync(dir)
+  } catch {
+    return []
+  }
+}

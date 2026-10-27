@@ -22,17 +22,11 @@
 ## 安装
 
 ```sh
-dsh plugin --profile <name> add deepseek-memory
-```
-
-从 git 源安装，同样是这一条命令：
-
-```sh
-dsh plugin --profile <name> add github:<you>/deepseek-memory
+dsh plugin --profile web add github:RocoFish/deepseek-memory
 ```
 
 **没有构建步骤，也不需要你放行任何脚本**——因为本仓库**把编译产物 `lib/` 提交进了
-版本控制**，所以从 git 装和从 npm 装拿到的东西完全一样。这是一个有意的取舍：把构建产物
+版本控制**，从 git 源安装直接拿到编译好的插件。这是一个有意的取舍：把构建产物
 放进版本控制并不常见，代价是维护者每次推送前要重新构建一次；换来的是每个使用者都不必先读
 一遍 pnpm 的构建脚本报错、再手工编辑 `pnpm-workspace.yaml`。一个要给别人装的插件，安装
 就得是一条命令。

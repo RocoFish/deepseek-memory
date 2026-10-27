@@ -24,18 +24,12 @@ history.
 ## Install
 
 ```sh
-dsh plugin --profile <name> add deepseek-memory
-```
-
-From a git host, the same one-liner:
-
-```sh
-dsh plugin --profile <name> add github:<you>/deepseek-memory
+dsh plugin --profile web add github:RocoFish/deepseek-memory
 ```
 
 There is no build step and no allowlist for you to deal with, because this
-repository **commits the compiled `lib/`** — a git install receives exactly what an
-npm install does. That is a deliberate trade: build output in version control is
+repository **commits the compiled `lib/`** — a git install receives the compiled
+plugin directly. That is a deliberate trade: build output in version control is
 unusual, and it costs the maintainer a rebuild before each push, weighed against
 every user having to read a pnpm build-script error and hand-edit
 `pnpm-workspace.yaml` first. For a plugin meant to be installed by strangers, the

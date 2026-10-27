@@ -24,6 +24,10 @@
 export declare const DEFAULT_MAX_ENTRIES = 50;
 /** Hard ceiling on one entry's length, in Unicode code points. */
 export declare const DEFAULT_MAX_ENTRY_CHARS = 500;
+/** Hard ceiling on how many tags one entry may carry. */
+export declare const MAX_TAGS_PER_ENTRY = 32;
+/** Hard ceiling on one tag's length, in Unicode code points. */
+export declare const MAX_TAG_CHARS = 64;
 /** Current on-disk format. A newer file is refused rather than misread. */
 export declare const STORE_FORMAT = 1;
 /** Which tier a store belongs to. */
@@ -64,7 +68,11 @@ export declare class MemoryError extends Error {
      */
     constructor(message: string, code: string);
 }
-/** Trim, collapse whitespace runs, and drop framing the model already understands. */
+/**
+ * Trim, collapse whitespace runs, and drop framing the model already
+ * understands — including framing that is *ours*, so a stored entry cannot
+ * forge the prompt wrapper and smuggle text out of the untrusted-data block.
+ */
 export declare function normalizeEntryText(value: string): string;
 /** Unicode code-point length, so the cap means the same thing for CJK and Latin. */
 export declare function codePointLength(value: string): number;
