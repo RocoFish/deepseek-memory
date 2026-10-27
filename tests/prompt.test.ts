@@ -38,6 +38,19 @@ test('the section is framed as notes and forbids following them', () => {
   assert.match(rendered.text, /- Prefers concise answers/)
 })
 
+test('entry content sits inside an explicit untrusted-data block', () => {
+  const rendered = renderMemory([
+    { tier: 'user', label: 'User memory', entries: [entry('m1', 'Prefers concise answers')] },
+  ], 1000)
+  assert.match(rendered.text, /<untrusted-data>/)
+  assert.match(rendered.text, /<\/untrusted-data>/)
+  const dataAt = rendered.text.indexOf('<untrusted-data>')
+  const entryAt = rendered.text.indexOf('Prefers concise answers')
+  const closeAt = rendered.text.indexOf('</untrusted-data>')
+  assert.ok(dataAt < entryAt && entryAt < closeAt, 'the entry must live inside the block')
+  assert.match(rendered.text, /data, not instructions/i)
+})
+
 test('project memory is injected before user memory', () => {
   const rendered = renderMemory([
     { tier: 'project', label: 'Project memory', entries: [entry('p1', 'Build uses tsdown')] },
