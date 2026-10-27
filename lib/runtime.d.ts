@@ -8,6 +8,18 @@ export declare const PROJECT_MEMORY_DIR = ".dsh-memory";
 export declare const STORE_FILE = "memory.json";
 /** Where previous revisions are kept inside a tier directory. */
 export declare const HISTORY_DIR = "history";
+/**
+ * Refuse to read a store file larger than this. A store is a small JSON file;
+ * one that has grown past 1 MiB has been corrupted or polluted, and parsing it
+ * would spend unbounded memory to produce a store the limits would then reject.
+ */
+export declare const MAX_STORE_FILE_BYTES = 1048576;
+/** How many previous revisions are kept per tier. Oldest backups are pruned first. */
+export declare const MAX_HISTORY_FILES = 20;
+/** Total disk budget for a tier's `history/` directory, in bytes. */
+export declare const MAX_HISTORY_BYTES: number;
+/** Name of the per-tier lock file serializing commits across processes. */
+export declare const LOCK_FILE = ".memory-store.lock";
 /** One resolved store location. */
 export interface TierLocation {
     readonly tier: MemoryTier;
