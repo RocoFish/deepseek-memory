@@ -75,7 +75,32 @@ export const DEFAULT_CONFIG: MemoryConfig = {
 }
 
 /**
+ * Hard ceilings on resource-shaped options, so a config typo cannot turn one
+ * request — or one store file — into an unbounded resource sink. These are
+ * deliberately generous: every default sits two orders of magnitude below its
+ * ceiling, and the ceilings only exist to catch configuration that slipped a
+ * decimal or a unit.
+ */
+const LIMITS = {
+  /** Entries per tier. The store is meant to be read whole by a human. */
+  maxEntries: 500,
+  /** Code points per entry. Even a "long" memory is a paragraph. */
+  maxEntryChars: 2_000,
+  /** Characters of memory text injected into one request. */
+  injectChars: 50_000,
+  /** Closed turns between consolidator runs. */
+  minTurnsBetweenRuns: 100,
+  /** Wall-clock cap for one consolidation, in milliseconds. */
+  consolidationTimeoutMs: 600_000,
+} as const
+
+/**
  * Clamp a numeric option into a sane range, ignoring nonsense values.
+ *
+ * Values below the floor fall back to the default (they are nonsense); values
+ * above the ceiling clamp to the ceiling (they are configuration that slipped a
+ * unit, and refusing the whole config over one slipped value would be worse than
+ * bounding it).
  *
  * Configuration is validated here rather than by a schema library. That is a
  * deliberate trade: the harness's native `schemastery` cannot express this
@@ -86,10 +111,9 @@ export const DEFAULT_CONFIG: MemoryConfig = {
  * consolidation mode — is a few explicit lines below. Dropping the dependency
  * also keeps the published package smaller.
  */
-function positive(value: unknown, fallback: number, minimum: number): number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= minimum
-    ? Math.floor(value)
-    : fallback
+function positive(value: unknown, fallback: number, minimum: number, maximum: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum) return fallback
+  return Math.min(Math.floor(value), maximum)
 }
 
 /** A non-empty string option, or undefined when absent or blank. */
@@ -106,18 +130,18 @@ export function resolveConfig(raw: unknown): MemoryConfig {
   return {
     user: input.user !== false,
     project: input.project !== false,
-    maxEntries: positive(input.maxEntries, DEFAULT_CONFIG.maxEntries, 1),
-    maxEntryChars: positive(input.maxEntryChars, DEFAULT_CONFIG.maxEntryChars, 16),
-    injectChars: positive(input.injectChars, DEFAULT_CONFIG.injectChars, 0),
+    maxEntries: positive(input.maxEntries, DEFAULT_CONFIG.maxEntries, 1, LIMITS.maxEntries),
+    maxEntryChars: positive(input.maxEntryChars, DEFAULT_CONFIG.maxEntryChars, 16, LIMITS.maxEntryChars),
+    injectChars: positive(input.injectChars, DEFAULT_CONFIG.injectChars, 0, LIMITS.injectChars),
     tools: input.tools !== false,
     consolidation: input.consolidation === 'off' || input.consolidation === 'always'
       ? input.consolidation
       : DEFAULT_CONFIG.consolidation,
-    minTurnsBetweenRuns: positive(input.minTurnsBetweenRuns, DEFAULT_CONFIG.minTurnsBetweenRuns, 0),
+    minTurnsBetweenRuns: positive(input.minTurnsBetweenRuns, DEFAULT_CONFIG.minTurnsBetweenRuns, 0, LIMITS.minTurnsBetweenRuns),
     keepHistory: input.keepHistory !== false,
     consolidationSubagentProvider: optionalString(input.consolidationSubagentProvider) ?? DEFAULT_CONFIG.consolidationSubagentProvider,
     consolidationRouteProvider: optionalString(input.consolidationRouteProvider),
     consolidationRouteModel: optionalString(input.consolidationRouteModel),
-    consolidationTimeoutMs: positive(input.consolidationTimeoutMs, DEFAULT_CONFIG.consolidationTimeoutMs, 1_000),
+    consolidationTimeoutMs: positive(input.consolidationTimeoutMs, DEFAULT_CONFIG.consolidationTimeoutMs, 1_000, LIMITS.consolidationTimeoutMs),
   }
 }
