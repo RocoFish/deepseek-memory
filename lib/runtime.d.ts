@@ -76,7 +76,7 @@ export declare class MemoryRuntime {
      *   this store was loaded, persisting would overwrite entries this process
      *   never saw (a lost update). Refuse instead.
      *
-     * Both refusals drop the tier's cached copy so the next read observes the
+     * Both refusals drop the tier's cached copy so the next read sees the
      * on-disk truth, and throw a {@link MemoryError} whose message the model (or a
      * retry loop) can act on.
      * @param tier - which store to persist.
