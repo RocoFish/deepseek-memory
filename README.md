@@ -146,6 +146,7 @@ attack surface or the corruption vector. The guarantees that hold on `main`:
 
 ## Storage format
 
+
 ```json
 {
   "format": 1,
@@ -257,8 +258,8 @@ The **user tier** resolves in this order, and the source used is reported by
 
 Tiers 2–5 exist because the desktop app's host process does not carry `DSH_HOME`:
 a sandboxed shell spawned from the same application had the variable while the host's
-own startup did not, so the tool reported the tier absent in the GUI. Falling back
-to the working directory is still refused — that would scatter standing personal facts
+own startup did not, so the tool reported the tier absent in the GUI. Falling back to
+the working directory is still refused — that would scatter standing personal facts
 into whatever directory the host happened to start in, including a plugin's own
 checkout, where they could be committed.
 
@@ -281,16 +282,20 @@ satisfies the plugin's interface. That check has already caught two real errors:
 
 ### The built output is self-contained: no bare imports at all
 
-This is the packaging rule that decides whether a profile install
-works. A plugin installed into a profile does **not** get the Harness SDK from
+This is the packaging rule that decides whether a profile install works at all, and
+it is invisible until someone actually installs the plugin. It cost two rounds of
+debugging to get right, so the full chain is recorded here.
+
+`dsh plugin add` puts this package in the profile's `node_modules`, and the loader
+imports it by name from there. Bare `@deepseek-ai/*` specifiers then resolve against
 the **profile's** `node_modules`, which holds only the profile's declared
 dependencies — the Harness SDK lives in the installation, not there. Measured on the
 `desktop` profile: `node_modules/@deepseek-ai` does not exist. A top-level bare
 import therefore does not degrade, it fails the whole entry with `failed to import`,
 before a single hook is registered.
 
-So SDK imports are **type-only** wherever possible, and every genuine runtime need
-is implemented locally:
+So SDK imports are **type-only** wherever possible, and every genuine runtime need is
+implemented locally:
 
 | Need | Handling |
 | --- | --- |
@@ -362,3 +367,46 @@ That second point is the real cost of committing build output, and it is worth
 stating plainly rather than discovering after a release.
 
 ## Development
+
+```sh
+npm install
+npm run typecheck    # tsc --noEmit against the real SDK types
+npm run build        # tsc -p tsconfig.build.json -> lib/
+npm test             # node --test, one process per file
+npm run check        # all three
+```
+
+`npm run test:sandbox` runs the same cases in a single process. It exists for two
+reasons: a restricted sandbox can deny the `spawn` that `node --test` needs, and the
+`define.test.ts` equivalence suite imports the real SDK, which a pnpm junction layout
+leaves unresolvable from inside `dsh-tools` (see above). That entry point adds a
+narrow resolver fallback for the `@deepseek-ai/*` scope; on a complete install it is
+unnecessary, and the plugin's own `lib/` needs no hook at all.
+
+## Known limitations
+
+- **The child path needs a subagent provider, and the fallback path needs a route.**
+  With a subagent provider, the child inherits the session's model and consolidation
+  is fully automatic. Without one, the fallback needs `consolidationRouteProvider` +
+  `consolidationRouteModel`, or the session's logged `request/header` route; with
+  neither, consolidation is skipped rather than guessing a model.
+- **Consolidation runs in-process and is not queued.** One run per session at a
+  time; a crash mid-run loses that run's changes, never a committed store.
+- **Concurrent writers are refused, not merged.** If another process commits the
+  same tier after this one loaded it (two harness windows on one project, say),
+  the write is refused with `MEMORY_STORE_CONFLICT` and the stale cache is
+  dropped, rather than silently overwriting the other writer's entries. Hand
+  edits that do not bump `revision` are still invisible until a `refresh()`.
+- **The gate is a heuristic over text.** It reads user and assistant text only; it
+  cannot see whether a turn was *important*, just whether it *sounded* durable.
+- **No dedup against near-identical entries.** Two differently-worded versions of
+  the same fact are two entries; the consolidator is expected to merge them.
+- **`maxEntries` is per tier, not global**, so a deployment with both tiers enabled
+  can hold twice the configured number of entries.
+- **The child can only write memory, so anything else it concludes is discarded.**
+  That is intentional, but it means a consolidation that needs to inspect a file to
+  decide is simply out of scope.
+
+## License
+
+MIT
