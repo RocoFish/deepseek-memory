@@ -311,7 +311,7 @@ path, and its own `import '@deepseek-ai/schemastery'` does not resolve from ther
 even though schemastery *is* installed as a sibling link in the pnpm store:
 
 ```
-ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/schematherapy'
+ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/schemastery'
   imported from ...\deepseek-memory\node_modules\@deepseek-ai\dsh-tools\lib\index.js
 ```
 
