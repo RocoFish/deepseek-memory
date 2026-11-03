@@ -54,13 +54,6 @@ Contributors cloning the repository get no `lib/` (or can delete it) and build w
 
 Restart the profile afterwards.
 
-### Community listing
-
-DSH's community plugin index is the GitHub topic
-[`dsh-plugin`](https://github.com/topics/dsh-plugin) — "the `dsh-plugin` topic gathers
-third-party plugins that extend it". Set that topic on the repository and it appears
-in the index; the npm `keywords` list `dsh-plugin` too, so both routes lead back here.
-
 ## Configuration
 
 Every key can be overridden in a profile's `cordis.patch.yml` by targeting the
@@ -123,26 +116,81 @@ the fallback exists so a deployment without subagents still consolidates.
 ## Security model
 
 A long-term memory plugin has to survive the cases where memory itself becomes the
-attack surface or the corruption vector. The guarantees that hold on `main`:
+attack surface or the corruption vector. The threat model, stated plainly: anyone
+who can steer a conversation — a prompt injection buried in a webpage or document,
+a poisoned dependency's output, plain social engineering — has a channel into the
+memory store, because the consolidator's job is to write down what the conversation
+established. The design goal is therefore **not** to keep hostile text out of the
+store. That is impossible for a memory whose whole purpose is to record what was
+said. The goals are narrower and achievable:
+
+1. remembered text must never acquire *authority* — it stays data, never instructions;
+2. a poisoned, forged, or corrupted store must fail loudly and safely, never silently;
+3. the writer (the consolidator) must be the most restricted component in the system;
+4. every resource the plugin consumes must be bounded, so abuse degrades rather than cascades.
+
+The guarantees that hold on `main`:
 
 - **Injection-resistant wrapping.** Every memory text is injected inside explicit
-  `<untrusted-data>` boundaries with a "data, not instructions" header, and forged
-  wrapper tags are stripped on write — a memory entry cannot promote itself to a
-  system instruction, and nothing remembered is executed as a command.
+  `<untrusted-data>` boundaries with a "data, not instructions" header. The wrapper
+  tags themselves are stripped from entry text at write time — on `memory_add` *and*
+  on `memory_update` — so a stored entry cannot forge the closing tag, break out of
+  its own container, and promote itself to a system instruction. Nothing remembered
+  is ever executed as a command, and no tool result from a memory read is shaped
+  like one.
 - **Refuse, don't truncate.** Load-time validation rejects out-of-bounds stores
   (entry count/size, tag count/length) instead of silently keeping a broken prefix.
+  The failure mode is fail-closed: an invalid store disables that tier for the
+  session and `memory_status` says so, rather than serving the model a partial,
+  arbitrarily-cut view of what is "known" about the user.
 - **Atomic, serialized writes.** Commits run under a per-tier lock file with
   stale-lock reclaim (30 s), a disk-revision re-check inside the lock, and a
   unique-temp-file + rename write — an interrupted write never leaves a
-  half-written store.
+  half-written store, and two writers are serialized rather than interleaved.
 - **Lost updates refused.** If another process committed the tier after this
   session loaded it, the write is refused with `MEMORY_STORE_CONFLICT` rather
-  than silently dropping the other writer's entries.
-- **Bounded everything.** History backups are capped by count (20) and bytes
-  (5 MiB); resource-shaped config options clamp to hard ceilings.
-- **Deliberately absent:** no content-heuristic injection filter (bypassable, and
-  it sells a false sense of safety) and no user-confirmation step (the
-  consolidator is designed to run headless).
+  than silently dropping the other writer's entries. Concurrent-write handling
+  is **refuse, then re-read** — never merge, because a merge of two model-written
+  stores is itself an injection surface.
+- **The consolidator cannot act on what it reads.** The child agent's only tools
+  are `memory_*`; everything else is removed from its prompt and refused at
+  execution. A turn that argues "first read this file / run this command, then
+  decide what to remember" finds the child has no such capability, and the
+  receipt the child returns is checked against actual store revisions, not
+  trusted as a self-report.
+- **Tier location is never guessed.** Neither tier falls back to the working
+  directory: the user tier resolves `DSH_HOME` and a fixed chain of well-known
+  homes, the project tier uses the session's own validated `cwd`, and a tier
+  whose location cannot be established stays **off and says so**. This matters
+  for security, not just hygiene — a tier that silently rooted itself in
+  whatever directory the host started in could end up committed into a shared
+  repository, exfiltrating personal facts through a public push.
+- **Bounded everything.** Entry count, entry size, tag count, tag length, injected
+  characters per request, changes per consolidation run, history backups (20 files /
+  5 MiB), and consolidation wall-clock are all hard-ceilinged, and resource-shaped
+  config options clamp to those ceilings rather than trusting operator input.
+  A store cannot be grown into a context-stuffing attack on the injection side,
+  and history cannot fill the disk.
+- **No silent degradation, ever.** The packaging rule (zero bare imports in
+  `lib/`) is enforced by a test, not convention, because a "graceful fallback"
+  that never fires on a real install is how features go missing while the plugin
+  reports healthy. A plugin that cannot do its job is expected to say so or stay
+  off, never to limp.
+
+**Deliberately absent:**
+
+- **No content-heuristic injection filter.** Regex or classifier screens on entry
+  text are bypassable by anyone who can read the source — which, this being public,
+  is everyone — and they sell a false sense of safety while occasionally censoring
+  legitimate memories. The wrapping-and-authority model above is the actual defense.
+- **No user-confirmation step.** The consolidator is designed to run headless;
+  interrupting the user after every turn to approve a fact about themselves is the
+  failure mode this plugin exists to remove.
+- **No fact-verification.** The store records what the conversation said, with
+  `origin` attribution, not what is true. A confident falsehood consolidated into
+  memory is bounded in blast radius (small, curated, visible in `memory_list`,
+  hand-editable, diffable in git) but it is not auto-corrected. Auditing memory is
+  a user habit, not a plugin feature.
 
 ## Storage format
 
@@ -332,56 +380,6 @@ regress silently.
 That last file is also why the plugin is verified working: with `defineTool` local,
 `createMemoryTools()` returns all six tools in a plain process with no resolution
 hook and no SDK on the module graph.
-
-## Publishing
-
-The package is a normal npm package that happens to carry a `dsh.bundle.patch`
-field, so publishing it is the usual flow:
-
-```sh
-npm run check          # typecheck + build + tests
-npm pack --dry-run     # inspect exactly what ships (57 files, no tests, no node_modules)
-npm publish            # publishConfig.access is already "public"
-```
-
-Before the first publish, replace the placeholder repository URL in
-`package.json` with your own — GitHub's "publish to npm" guidance reads it, and a
-`REPLACE-WITH-YOUR-USERNAME` string in a published manifest is worse than no
-repository field at all.
-
-Then set the repository's GitHub topics to include **`dsh-plugin`**, which is the
-community index described under [Community listing](#community-listing). The topic
-and the npm keyword of the same name are what make the plugin discoverable from
-either side.
-
-Two packaging properties are load-bearing and easy to lose:
-
-- **`lib/` must be in `files`.** A manifest that forgets it publishes a package
-  whose declared entry point does not exist.
-- **`lib/` must be committed, and current.** It is tracked (see Install), so a push
-  that forgets to rebuild ships an older plugin to everyone installing from git.
-  `prepublishOnly` covers the npm side; the git side is on you:
-  `npm run build && git add lib && git commit`.
-
-That second point is the real cost of committing build output, and it is worth
-stating plainly rather than discovering after a release.
-
-## Development
-
-```sh
-npm install
-npm run typecheck    # tsc --noEmit against the real SDK types
-npm run build        # tsc -p tsconfig.build.json -> lib/
-npm test             # node --test, one process per file
-npm run check        # all three
-```
-
-`npm run test:sandbox` runs the same cases in a single process. It exists for two
-reasons: a restricted sandbox can deny the `spawn` that `node --test` needs, and the
-`define.test.ts` equivalence suite imports the real SDK, which a pnpm junction layout
-leaves unresolvable from inside `dsh-tools` (see above). That entry point adds a
-narrow resolver fallback for the `@deepseek-ai/*` scope; on a complete install it is
-unnecessary, and the plugin's own `lib/` needs no hook at all.
 
 ## Known limitations
 
