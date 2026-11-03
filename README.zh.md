@@ -183,7 +183,7 @@ subagent 的部署也能整理。
 
 ## 设计说明
 
-有三条约束塑造了这个实现，改动前值得先知道。
+有四条约束塑造了这个实现，改动前值得先知道。
 
 **1. 没有万能的 `plugin` 消息来源。** `MessageSourceMap` 是可合并扩展的联合类型，
 每个生产者**在自己的模块里声明自己的 `kind`**。写 `{ kind: 'plugin', plugin: 'x' }`
@@ -247,6 +247,49 @@ profile 安装能工作的前提。详见下文"产物自包含"。
 [`src/typecheck.ts`](src/typecheck.ts) 断言已发布的 `SubagentRuntime` 满足插件的接口。
 **这个校验已经抓出两个真实错误**：一处 `readonly ContentBlock[]`（SDK 要求可变数组），
 一处 `outputSchema` 类型过宽导致不可赋值。
+
+### 产物自包含：零裸导入
+
+这条打包规则决定 profile 安装到底能不能工作，而且在有人真的安装之前完全不可见。
+它花了两轮调试才修好，所以完整链条记录在这里。
+
+`dsh plugin add` 把本包放进 profile 的 `node_modules`，加载器从那里按名字 import 它。
+裸 `@deepseek-ai/*` 说明符于是对着 **profile 自己的** `node_modules` 解析——那里只装
+profile 声明的依赖，Harness SDK 住在安装目录里，不在那里。实测于 `desktop` profile：
+`node_modules/@deepseek-ai` 不存在。所以顶层裸 import 不是降级，而是在任何一个钩子
+注册之前就以 `failed to import` 让整个入口失败。
+
+所以 SDK import 凡有可能**只留类型**，一切真实运行时需求都在本地实现：
+
+| 需求 | 处理 |
+| --- | --- |
+| `createUserMessage` | 在 [`src/message.ts`](src/message.ts) 里复刻，契约在 `typecheck.ts` 里对着 SDK 自己的类型校验。 |
+| `defineTool`（含参数编译、参数校验） | 在 [`src/define.ts`](src/define.ts) 里实现。 |
+| `assertObjectJsonSchema` | 在 [`src/define.ts`](src/define.ts) 里实现为结构自洽性检查。 |
+
+**带兜底的动态 `import()` 不是解法，本仓库已不再使用它。** 它看起来像优雅降级，但在
+目标安装上这个 import 永远失败，于是"兜底"成了永久路径——功能静默缺失，插件却报告
+健康。记忆工具从所有工具面上消失，正是这么发生的。
+
+动态 import 还栽在第二个更隐蔽的原因上，值得知道：pnpm 用 **junction** 链接包，所以
+`dsh-tools` 是从 `node_modules\@deepseek-ai\dsh-tools\lib\index.js` 进入的，而不是它的
+真实 store 路径，于是它自己的 `import '@deepseek-ai/schemastery'` 从那里解析不出来——
+尽管 schemastery *确实*作为同级链接装在 pnpm store 里：
+
+```
+ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/schemastery'
+  imported from ...\deepseek-memory\node_modules\@deepseek-ai\dsh-tools\lib\index.js
+```
+
+这是链接布局问题，**不是**已发布依赖闭包不完整。
+
+这带来的唯一风险是和 harness 漂移，所以用两手压住：`tests/define.test.ts` 把同一份
+选项过真 SDK 的 `defineTool` 编译一遍，并断言深度相等**包括键序**；`src/typecheck.ts`
+断言本地定义始终可赋值给 SDK 自己的类型。`tests/packaging.test.ts` 强制 `lib/*.js`
+里零裸说明符，静态**和**动态都算，所以这一点不会静默回归。
+
+最后一个文件也是插件"验证过能工作"的原因：`defineTool` 是本地的，`createMemoryTools()`
+在一个普通进程里、没有解析钩子、模块图上没有 SDK，也能返回全部六个工具。
 
 ## 已知边界
 
