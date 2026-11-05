@@ -15,7 +15,8 @@ A memory store is also a **trust boundary**: it is model-written text that later
 gets read back into a prompt. This plugin treats that seriously — writes are
 atomic and locked, remembered text is wrapped as data rather than trusted as
 instructions, and out-of-bounds or forged content is refused, not truncated. See
-[Security model](#security-model) below.
+[Security model](#security-model) below, and [DESIGN.md](DESIGN.md) for the
+reasoning behind what gets stored and why.
 
 ## Why memory
 
