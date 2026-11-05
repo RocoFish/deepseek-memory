@@ -17,6 +17,25 @@ atomic and locked, remembered text is wrapped as data rather than trusted as
 instructions, and out-of-bounds or forged content is refused, not truncated. See
 [Security model](#security-model) below.
 
+## Why memory
+
+Without a memory layer, every new session starts from zero:
+
+| Day | You say | The AI does |
+| --- | --- | --- |
+| 1 | "I use pnpm, not npm." | uses pnpm ✅ |
+| 5 | *(nothing)* | uses npm again ❌ |
+
+With deepseek-memory, day 5 looks different:
+
+| Day | You say | The AI does |
+| --- | --- | --- |
+| 1 | "I use pnpm, not npm." | `memory_add`: "User uses pnpm." |
+| 5 | *(nothing)* | still uses pnpm ✅ — the store is injected into every request |
+
+State a fact once; it is injected into every later session. No repeated
+instructions, no "as I said before".
+
 ## What it does
 
 | Piece | Behaviour |
@@ -45,14 +64,28 @@ Which means **there is deliberately no `prepare` script.** pnpm decides whether 
 git dependency's build scripts need allowlisting by looking for that entry in
 `package.json` — before running it, and regardless of what it contains. A
 conditional `prepare` that exits immediately when `lib/` is present therefore still
-demands the allowlist, which was measured rather than assumed. Committing `lib/` and
-dropping the entry is what actually removes the step; `prepublishOnly` still builds
+demands the allowlist, which was measured rather than assumed. Committing `lib/`
+and dropping the entry is what actually removes the step; `prepublishOnly` still builds
 for npm, where no consumer is affected.
 
 Contributors cloning the repository get no `lib/` (or can delete it) and build with
 `npm install && npm run build`.
 
 Restart the profile afterwards.
+
+## Verify it works (3 steps, ~5 minutes)
+
+- [ ] **1. Install and restart the profile** (command above).
+- [ ] **2. Check the tiers** — ask the model to run `memory_status`. Each tier
+      reports its location and entry count; a tier that cannot be located is
+      reported as disabled, not hidden.
+- [ ] **3. Write, then recall in a fresh session** — say
+      "Use `memory_add` to remember: I use pnpm, not npm." Confirm the entry
+      shows up in `memory_list`, then open a **new** session and ask
+      "Which package manager do I use?" It should answer from memory, unprompted.
+
+If step 3 works, the plugin is installed correctly. If a step fails, see
+[Known limitations](#known-limitations).
 
 ## Configuration
 
@@ -225,7 +258,8 @@ rather not share it.
 ## Design notes
 
 Four constraints shaped this implementation and are worth knowing before changing
-it.
+it. For the reasoning behind the memory model itself — what gets stored and why —
+see [DESIGN.md](DESIGN.md).
 
 **1. `inject` is not an optional-dependency declaration — it is what makes the
 service registry reachable.** This shipped broken once, so it is first. A Cordis
@@ -380,6 +414,15 @@ regress silently.
 That last file is also why the plugin is verified working: with `defineTool` local,
 `createMemoryTools()` returns all six tools in a plain process with no resolution
 hook and no SDK on the module graph.
+
+## FAQ
+
+| Concern | Answer |
+| --- | --- |
+| **Will it pollute my project?** | No. The store is plain JSON in directories you own — hand-editable, `git diff`-able. The project tier lives in `<cwd>/.dsh-memory/`; add it to `.gitignore` if you don't want to share it. |
+| **What does injection cost?** | At most `injectChars` characters (default **4000**) enter one request — on the order of ~1k tokens for English text, with no embedding or retrieval call on the path. |
+| **Is it reversible?** | Yes. `memory_delete` removes any entry; with `keepHistory` (default on) every mutation keeps the previous revision under `history/` (capped at 20 files / 5 MiB); uninstalling the plugin leaves only plain files. |
+| **Can the store grow without bound?** | No. Entry count, entry size, tag count/length, injected characters, per-run changes, and history are all hard-ceilinged — see [Security model](#security-model). An over-eager consolidator is bounded by the same ceilings. |
 
 ## Known limitations
 
