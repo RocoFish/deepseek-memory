@@ -10,7 +10,9 @@ For implementation constraints (Cordis wiring, packaging, turn boundaries), see
 
 **Decision:** the plugin never persists raw conversation logs. The store holds
 only short, distilled facts, and the *whole store* is injected into every
-request.
+request — subject to the injection budget: entries that do not fit are omitted
+with a pointer to `memory_search`, and the ceilings in §4 are what keep
+overflow from being the normal case.
 
 **Why:** a transcript is the highest-noise, highest-cost data a memory system
 can hold. It contains secrets typed once and never relevant again, one-off
@@ -19,7 +21,7 @@ transcripts degrades into a junk drawer within weeks, and every retrieval call
 adds latency and a ranking step that can silently drop the one fact that
 mattered. A bounded store of facts has none of these failure modes: injection is
 a constant, predictable cost, and nothing is ranked because everything
-relevant is always present.
+relevant is present by construction.
 
 ## 2. Automatic writes, biased toward under-triggering
 
@@ -38,7 +40,8 @@ writes is the gate plus visible, deletable entries — not a dialog box.
 ## 3. Plain files, deliberately
 
 **Decision:** each tier is a single readable JSON file, hand-editable and
-diffable in git. Every mutation keeps the previous revision under `history/`.
+diffable in git. Every mutation keeps the previous revision under `history/`
+(per tier, capped at 20 files / 5 MiB).
 
 **Why:** trust comes from inspectability. If a user cannot `cat` their own
 memory, they cannot verify what the AI knows about them. Plain files are
@@ -49,9 +52,9 @@ feature request. JSON rather than a database is the same choice again: the file
 ## 4. Hard limits everywhere
 
 **Decision:** entry count (per tier), entry size, tag count/length, injected
-characters per request, changes per consolidation run, history backups
-(20 files / 5 MiB), and consolidation wall-clock are all hard-ceilinged.
-Resource-shaped config options are clamped to these ceilings.
+characters per request, changes per consolidation run (8), history backups
+(20 files / 5 MiB per tier), and consolidation wall-clock are all
+hard-ceilinged. Resource-shaped config options are clamped to these ceilings.
 
 **Why:** an unbounded memory store is a denial-of-service against the user's
 own context window. Limits are fail-safe: a store that hits its ceiling
@@ -62,9 +65,9 @@ not silent truncation.
 
 **Decision:** memory content is parsed defensively at load time, injected inside
 `<untrusted-data>` boundaries, and wrapped with a "data, not instructions"
-header. Out-of-bounds or forged stores are refused, never truncated. Wrapper
-tags are stripped from entry text at write time so a stored entry cannot forge
-its own closing tag.
+header. Out-of-bounds or forged stores are refused at load, never truncated.
+Wrapper tags are stripped from entry text at write time so a stored entry cannot
+forge its own closing tag.
 
 **Why:** memory text flows into the system prompt of every future session. A
 corrupted or hostile entry is not a data bug — it is a prompt-injection vector.

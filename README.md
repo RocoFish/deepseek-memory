@@ -200,7 +200,7 @@ The guarantees that hold on `main`:
   repository, exfiltrating personal facts through a public push.
 - **Bounded everything.** Entry count, entry size, tag count, tag length, injected
   characters per request, changes per consolidation run, history backups (20 files /
-  5 MiB), and consolidation wall-clock are all hard-ceilinged, and resource-shaped
+  5 MiB per tier), and consolidation wall-clock are all hard-ceilinged, and resource-shaped
   config options clamp to those ceilings rather than trusting operator input.
   A store cannot be grown into a context-stuffing attack on the injection side,
   and history cannot fill the disk.
@@ -420,8 +420,8 @@ hook and no SDK on the module graph.
 | Concern | Answer |
 | --- | --- |
 | **Will it pollute my project?** | No. The store is plain JSON in directories you own — hand-editable, `git diff`-able. The project tier lives in `<cwd>/.dsh-memory/`; add it to `.gitignore` if you don't want to share it. |
-| **What does injection cost?** | At most `injectChars` characters (default **4000**) enter one request — on the order of ~1k tokens for English text, with no embedding or retrieval call on the path. |
-| **Is it reversible?** | Yes. `memory_delete` removes any entry; with `keepHistory` (default on) every mutation keeps the previous revision under `history/` (capped at 20 files / 5 MiB); uninstalling the plugin leaves only plain files. |
+| **What does injection cost?** | At most `injectChars` characters of memory text (default **4000**) enter one request — on the order of ~1k tokens for English text, with no embedding or retrieval call on the path. CJK text packs fewer characters per token, so the same character budget costs more tokens. |
+| **Is it reversible?** | Yes. `memory_delete` removes any entry; with `keepHistory` (default on) every mutation keeps the previous revision under `history/`, capped per tier at 20 files / 5 MiB; uninstalling the plugin leaves only plain files. |
 | **Can the store grow without bound?** | No. Entry count, entry size, tag count/length, injected characters, per-run changes, and history are all hard-ceilinged — see [Security model](#security-model). An over-eager consolidator is bounded by the same ceilings. |
 
 ## Known limitations
