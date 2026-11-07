@@ -12,10 +12,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import {
+  canNarrowChildren,
   CONSOLIDATION_OUTPUT_SCHEMA,
   CONSOLIDATOR_PERSONA,
   MEMORY_TOOL_NAMES,
   runChildConsolidation,
+  type SubagentConsolidator,
   type SubagentRunLike,
   type SubagentStartLike,
 } from '../src/subagent.ts'
@@ -55,7 +57,7 @@ function sandbox() {
 }
 
 const parent = { id: 'session-1' } as unknown as Agent
-const deps = (runtime: MemoryRuntime, service: ReturnType<typeof fakeSubagents>['service']) => ({
+const deps = (runtime: MemoryRuntime, service: SubagentConsolidator) => ({
   subagents: service,
   provider: 'in-process',
   runtime,
@@ -191,4 +193,28 @@ test('the output schema is a valid object-rooted schema and the allow list is ex
   assert.equal(CONSOLIDATION_OUTPUT_SCHEMA['additionalProperties'], false)
   assert.equal(MEMORY_TOOL_NAMES.length, 6)
   assert.ok(MEMORY_TOOL_NAMES.every(tool => tool.startsWith('memory_')))
+})
+
+test('child-path eligibility reflects whether the host can narrow', () => {
+  assert.equal(canNarrowChildren({ start: async () => runReturning({ stopReason: 'completed' }).handle }), true)
+  // DSH 0.2.2 activation-only host: `startActivation` exists, `start` does not.
+  const activationOnly = { startActivation: async () => { throw new Error('must not be used') } } as unknown as Parameters<typeof canNarrowChildren>[0]
+  assert.equal(canNarrowChildren(activationOnly), false)
+  assert.equal(canNarrowChildren({}), false)
+  assert.equal(canNarrowChildren(undefined), false)
+})
+
+test('runChildConsolidation refuses a host whose start entry point is gone', async () => {
+  const box = sandbox()
+  try {
+    const activationOnly = { startActivation: async () => { throw new Error('must not be used') } } as unknown as SubagentConsolidator
+    await assert.rejects(
+      runChildConsolidation(deps(box.runtime, activationOnly), {
+        parent,
+        transcript: 'x',
+        signal: new AbortController().signal,
+      }),
+      /cannot start a narrowed child/,
+    )
+  } finally { box.cleanup() }
 })
