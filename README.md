@@ -74,6 +74,24 @@ Contributors cloning the repository get no `lib/` (or can delete it) and build w
 
 Restart the profile afterwards.
 
+## Compatibility
+
+Peer-checked against the whole DSH 0.2.x line: the five `@deepseek-ai/dsh-*`
+`peerDependencies` are declared as `^0.2.0-rc.2`, so any 0.2.x host — including
+prereleases such as `0.2.2-rc.1` — passes the install-time compatibility gate.
+
+Which consolidation path runs is decided at runtime by probing the host
+([`canNarrowChildren()`](src/subagent.ts)), not by version string:
+
+| Host | Consolidation path |
+| --- | --- |
+| DSH 0.2.0-rc.2 – 0.2.1.x (a fresh child still accepts a per-request `toolFilter`) | The restricted **child agent** path, as designed. |
+| DSH 0.2.2-rc.1 and later 0.2.x (per-request narrowing was removed from the fresh-spawn path) | **Fail-closed fallback**: a direct model call with no tools, plus one load-time warning. This is by design, not an error — see [How consolidation works](#how-consolidation-works). |
+
+If the plugin manager reports the plugin as "incompatible" after a DSH upgrade,
+update the plugin instead of forcing an override: each release pins its peer
+ranges to the DSH line it was built and type-checked against.
+
 ## Verify it works (3 steps, ~5 minutes)
 
 - [ ] **1. Install and restart the profile** (command above).
