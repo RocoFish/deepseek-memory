@@ -45,7 +45,16 @@ export const MEMORY_TOOL_NAMES = [
  * Declared structurally and deliberately narrow. The plugin depends on one method
  * with one documented request shape, so it needs neither a hard dependency on the
  * subagent package nor the ability to configure anything else about the child.
- * `subagent-types.ts` asserts that the real service satisfies this.
+ *
+ * `start` is **optional** on purpose. DSH 0.2.2 removed `SubagentRuntime.start()`
+ * in favour of `startActivation()`, and the activation path builds a fresh child
+ * from an `agentPreset` only: the per-request `toolFilter`/`persona` narrowing this
+ * plugin relies on no longer exists for a newly spawned child. A host that only
+ * offers `startActivation()` therefore cannot run a narrowed child, and this
+ * plugin must not silently degrade to one — the whole point of the child path is
+ * that it can reach nothing but the memory tools. `canNarrowChildren()` is the
+ * eligibility probe; hosts without `start` fall back to the direct model path
+ * (a bare `llm.stream()` with no tools), which is safe by construction.
  */
 export interface SubagentConsolidator {
   /**
@@ -54,7 +63,19 @@ export interface SubagentConsolidator {
    * @param request - label, prompt, parent, signal, and the optional narrowing knobs.
    * @returns the published run, whose result settles when the child finishes.
    */
-  start(name: string, request: SubagentStartLike): Promise<SubagentRunLike>
+  start?(name: string, request: SubagentStartLike): Promise<SubagentRunLike>
+}
+
+/**
+ * Whether the host can actually start a narrowed child.
+ *
+ * True only when the host still exposes the per-request `start()` entry point
+ * that accepts `toolFilter`. On DSH 0.2.2+ (activation-only hosts) this is
+ * false, and the plugin fails closed to the direct model path instead of
+ * spawning a child it cannot narrow.
+ */
+export function canNarrowChildren(subagents: SubagentConsolidator | undefined): boolean {
+  return typeof subagents?.start === 'function'
 }
 
 /** The request fields this plugin sets. Mirrors `SubagentStartRequest`. */
@@ -232,7 +253,14 @@ export async function runChildConsolidation(
     .reduce((sum, tier) => sum + deps.runtime.store(tier).revision, 0)
   const entriesBefore = totalEntries(deps.runtime)
 
-  const run = await deps.subagents.start(deps.provider, {
+  // Fail closed: without `start()` the host cannot narrow a fresh child, and an
+  // un-narrowed child must never run. The caller (index.ts) probes eligibility
+  // before choosing this path, so reaching here means a genuine contract break.
+  const start = deps.subagents.start
+  if (start === undefined) {
+    throw new Error('this DSH build cannot start a narrowed child (per-start toolFilter was removed in 0.2.2)')
+  }
+  const run = await start.call(deps.subagents, deps.provider, {
     label: 'memory consolidation',
     prompt: renderPrompt(input.transcript, renderStore(deps.runtime)),
     parent: input.parent,
