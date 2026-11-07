@@ -53,8 +53,15 @@ function makeCtx(options: {
   onChild?: (request: SubagentStartLike) => SubagentRunLike
   /** Text chunks the fake LLM streams back on the fallback path. */
   llmReply?: string
+  /**
+   * Which subagent surface the fake host exposes. `'start'` (default) is the
+   * pre-0.2.2 per-request entry point; `'activation-only'` mimics DSH 0.2.2,
+   * where `start()` was removed and a fresh child cannot be narrowed.
+   */
+  subagentsStyle?: 'start' | 'activation-only'
 } = {}) {
   const omit = new Set(options.omit ?? [])
+  const warns: string[] = []
   const listeners = new Map<string, ((...args: unknown[]) => unknown)[]>()
   const registered: { name: string }[] = []
   const sections: { name: string; text: unknown }[] = []
@@ -69,7 +76,11 @@ function makeCtx(options: {
   const projectDir = join(root, 'project')
 
   const ctx = {
-    logger: () => ({ info: () => {}, warn: () => {}, error: () => {} }),
+    logger: () => ({
+      info: () => {},
+      warn: (message: string) => { warns.push(message) },
+      error: () => {},
+    }),
     get(key: string) {
       if (key === 'cwd') return projectDir
       if (key === 'tools') {
@@ -93,6 +104,11 @@ function makeCtx(options: {
       }
       if (key === 'subagents') {
         if (omit.has('subagents')) return undefined
+        if (options.subagentsStyle === 'activation-only') {
+          return {
+            startActivation: async () => { throw new Error('startActivation must not be used for consolidation') },
+          }
+        }
         return {
           start: async (_name: string, request: SubagentStartLike): Promise<SubagentRunLike> => {
             childCalls.push(request)
@@ -136,6 +152,7 @@ function makeCtx(options: {
     sections,
     childCalls,
     disposers,
+    warns,
     setRefused(value: boolean) { refused = value },
     cleanup: () => { rmSync(root, { recursive: true, force: true }) },
     /** Deliver a session event to every `session/event` listener. */
@@ -304,6 +321,25 @@ test('without a subagent provider the turn still consolidates, via the fallback 
     const rendered = handle.renderSection()
     assert.match(rendered, /the build uses tsc/,
       'the fallback must be able to write memory when no subagent provider exists')
+  } finally { started.restore(); started.dispose(); handle.cleanup() }
+})
+
+test('a host whose subagent service cannot narrow (0.2.2 activation-only) consolidates via the fallback', async () => {
+  const handle = makeCtx({ subagentsStyle: 'activation-only', llmReply: '{"actions":[{"op":"add","tier":"project","text":"the build uses tsc"}]}' })
+  const started = await start(handle)
+  try {
+    handle.emitSession('session-1', routeEvent('deepseek-official', 'deepseek-flash'))
+    handle.emitSession('session-1', userEvent('记住我们的构建用 tsc', 1))
+    handle.emitSession('session-1', assistantEvent('好。', 2))
+    handle.emitStatus('session-1')
+    await settle()
+
+    assert.equal(handle.childCalls.length, 0, 'an activation-only host cannot run a narrowed child')
+    assert.ok(handle.warns.some(message => message.includes('cannot narrow')),
+      'the plugin must say once at load that the child path is unavailable')
+    const rendered = handle.renderSection()
+    assert.match(rendered, /the build uses tsc/,
+      'the direct model path must still consolidate memory')
   } finally { started.restore(); started.dispose(); handle.cleanup() }
 })
 
