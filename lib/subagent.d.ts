@@ -35,7 +35,16 @@ export declare const MEMORY_TOOL_NAMES: readonly ["memory_add", "memory_update",
  * Declared structurally and deliberately narrow. The plugin depends on one method
  * with one documented request shape, so it needs neither a hard dependency on the
  * subagent package nor the ability to configure anything else about the child.
- * `subagent-types.ts` asserts that the real service satisfies this.
+ *
+ * `start` is **optional** on purpose. DSH 0.2.2 removed `SubagentRuntime.start()`
+ * in favour of `startActivation()`, and the activation path builds a fresh child
+ * from an `agentPreset` only: the per-request `toolFilter`/`persona` narrowing this
+ * plugin relies on no longer exists for a newly spawned child. A host that only
+ * offers `startActivation()` therefore cannot run a narrowed child, and this
+ * plugin must not silently degrade to one — the whole point of the child path is
+ * that it can reach nothing but the memory tools. `canNarrowChildren()` is the
+ * eligibility probe; hosts without `start` fall back to the direct model path
+ * (a bare `llm.stream()` with no tools), which is safe by construction.
  */
 export interface SubagentConsolidator {
     /**
@@ -44,8 +53,17 @@ export interface SubagentConsolidator {
      * @param request - label, prompt, parent, signal, and the optional narrowing knobs.
      * @returns the published run, whose result settles when the child finishes.
      */
-    start(name: string, request: SubagentStartLike): Promise<SubagentRunLike>;
+    start?(name: string, request: SubagentStartLike): Promise<SubagentRunLike>;
 }
+/**
+ * Whether the host can actually start a narrowed child.
+ *
+ * True only when the host still exposes the per-request `start()` entry point
+ * that accepts `toolFilter`. On DSH 0.2.2+ (activation-only hosts) this is
+ * false, and the plugin fails closed to the direct model path instead of
+ * spawning a child it cannot narrow.
+ */
+export declare function canNarrowChildren(subagents: SubagentConsolidator | undefined): boolean;
 /** The request fields this plugin sets. Mirrors `SubagentStartRequest`. */
 export interface SubagentStartLike {
     readonly label?: string;
