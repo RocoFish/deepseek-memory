@@ -275,9 +275,15 @@ profile 安装能工作的前提。详见下文"产物自包含"。
 由 `tests/packaging.test.ts` 静态与动态双重把关。
 
 结构接口有可能和真实接口悄悄漂移，所以
-[`src/typecheck.ts`](src/typecheck.ts) 断言已发布的 `SubagentRuntime` 满足插件的接口。
+[`src/typecheck.ts`](src/typecheck.ts) 把插件的接口钉在已发布 SDK 的类型上。
 **这个校验已经抓出两个真实错误**：一处 `readonly ContentBlock[]`（SDK 要求可变数组），
-一处 `outputSchema` 类型过宽导致不可赋值。
+一处 `outputSchema` 类型过宽导致不可赋值。0.1.1 版把它对准
+`@deepseek-ai/dsh-subagent@0.2.2-rc.1`——这一版 `SubagentRuntime.start()` 被
+`startActivation()` 取代，插件的 `SubagentConsolidator.start` 因此改为可选，
+[`canNarrowChildren()`](src/subagent.ts) 在运行时探测宿主是否还能收窄一个新起的子代理。
+DSH 0.2.2 的宿主不能（逐请求的 `toolFilter` 已从新起路径上移除），插件于是**失败关闭**
+（fail closed）地退回直连模型路径，而不是跑一个它管不住的子代理，并在加载时说明一次。
+这一轮的漂移正是被结构校验"编译不过"抓到的——这正是它存在的意义。
 
 ### 产物自包含：零裸导入
 
