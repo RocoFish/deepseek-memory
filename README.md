@@ -358,10 +358,18 @@ importing the SDK's service classes. That keeps the plugin adaptable to the
 deployment's actual versions.
 
 A structural interface can drift from the real one, so
-[`src/typecheck.ts`](src/typecheck.ts) asserts that the published `SubagentRuntime`
-satisfies the plugin's interface. That check has already caught two real errors: a
-`readonly ContentBlock[]` where the SDK requires a mutable array, and an
-`outputSchema` typed too loosely to be assigned.
+[`src/typecheck.ts`](src/typecheck.ts) pins the plugin's interfaces to the published
+SDK types. That check has already caught two real errors: a `readonly ContentBlock[]`
+where the SDK requires a mutable array, and an `outputSchema` typed too loosely to be
+assigned. Version 0.1.1 re-targets it at `@deepseek-ai/dsh-subagent@0.2.2-rc.1`,
+where `SubagentRuntime.start()` was removed in favour of `startActivation()`: the
+plugin's `SubagentConsolidator.start` is now optional, and
+[`canNarrowChildren()`](src/subagent.ts) probes at runtime whether the host can
+still narrow a fresh child. DSH 0.2.2 hosts cannot — per-request `toolFilter` is
+gone from the fresh-spawn path — so the plugin fails closed to the direct model
+path there instead of running a child it cannot restrict, and says so once at load.
+The drift this round was caught *because* the structural check stopped compiling,
+which is exactly what it exists for.
 
 ### The built output is self-contained: no bare imports at all
 
