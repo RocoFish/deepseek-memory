@@ -2,7 +2,27 @@
 
 Notable changes to `deepseek-memory`. Versions follow [semver](https://semver.org/).
 
-## Unreleased
+## 0.1.1
+
+Compatibility with DSH 0.2.2-rc.1.
+
+**Changed**
+
+- Peer ranges widened: the five `@deepseek-ai/dsh-*` peers move from the exact
+  pin `0.2.0-rc.2` to `^0.2.0-rc.2`, and `@deepseek-ai/cordis` from `~4.0.4` to
+  `^4.0.4`. The previous exact pins made the install-time compatibility gate
+  flag the plugin as incompatible on any newer DSH; `^0.2.0-rc.2` still admits
+  only the 0.2.x line the plugin was built against. Dev dependencies now track
+  `0.2.2-rc.1` and the unused ones (`dsh-invariants`, `dsh-brand`,
+  `dsh-timeout`, `dsh-util-crypto`, `dsh-util-values`, `dsh-typert-protocol`,
+  `cosmokit`) were removed — no source file imports them.
+- DSH 0.2.2 removed `SubagentRuntime.start()` in favour of `startActivation()`,
+  and the activation path no longer accepts a per-request `toolFilter`/`persona`
+  for a freshly spawned child (narrowing moved to preset composition). Since an
+  un-narrowed child would defeat the point of the child path, the plugin now
+  probes eligibility with `canNarrowChildren()`: hosts that can narrow use the
+  child as before; activation-only hosts fail closed to the direct model path
+  (a bare `llm.stream()` with no tools) and say so once at load.
 
 **Fixed**
 

@@ -13,19 +13,25 @@
  * every statement is a type assertion over a `declare`d value, and the module
  * exports nothing.
  *
+ * Checked against `@deepseek-ai/dsh-subagent@0.2.2-rc.1` (see CHANGELOG 0.1.1):
+ * 0.2.2 removed `SubagentRuntime.start()` in favour of `startActivation()`. The
+ * plugin's child path needs the per-request `toolFilter` narrowing that
+ * `startActivation()` does not offer for a fresh child, so the plugin treats the
+ * activation-only surface as "cannot narrow" and fails closed to the direct model
+ * path. The assertions below pin the shapes the plugin still relies on:
+ * `SubagentActivation` must remain structurally usable as a run handle, and its
+ * settled result must remain structurally usable as a run receipt.
+ *
  * @module deepseek-memory/typecheck
  */
-import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
+import type { SubagentActivation, SubagentResult, SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
-import type { SubagentConsolidator, SubagentRunLike, SubagentStartLike } from './subagent.ts'
+import type { SubagentRunLike, SubagentStartLike } from './subagent.ts'
 
-// The real service must satisfy the interface this plugin calls through.
+// The real service's activation entry point must still exist (0.2.2 surface).
 declare const realSubagents: SubagentRuntime
-export const _serviceSatisfiesPlugin: SubagentConsolidator = realSubagents
-
-// And the plugin must never rely on more of it than the interface promises.
-export const _pluginUsesSubset = true
+export const _serviceRecognized: { readonly startActivation: unknown } = realSubagents
 
 // Context wiring: `ctx.subagents` is the only key this plugin reads for the child path.
 declare const ctx: Context
@@ -38,6 +44,10 @@ export function _parentIsAgent(request: SubagentStartLike): Agent {
   return request.parent as Agent
 }
 
-// A run handle's result and disposer must line up with what the plugin awaits.
-declare const run: Awaited<ReturnType<SubagentRuntime['start']>>
-export const _runSatisfiesPlugin: SubagentRunLike = run
+// An activation handle's result and disposer must line up with what the plugin
+// awaits from a run handle, so the two shapes cannot drift apart silently.
+declare const activation: SubagentActivation
+export const _activationFitsRunHandle: SubagentRunLike = activation
+
+declare const activationResult: SubagentResult
+export const _activationResultFitsReceipt: Awaited<SubagentRunLike['result']> = activationResult
