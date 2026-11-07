@@ -46,7 +46,7 @@ import { createMemoryUserMessage } from './message.ts'
 import { MEMORY_SECTION, MEMORY_SECTION_ORDER, renderMemory, type TierView } from './prompt.ts'
 import { MemoryRuntime } from './runtime.ts'
 import { MemoryError, type MemoryTier } from './store.ts'
-import type { SubagentConsolidator } from './subagent.ts'
+import { canNarrowChildren, type SubagentConsolidator } from './subagent.ts'
 import { createMemoryTools } from './tools.ts'
 
 /** Environment variable naming the harness home that holds the user tier. */
@@ -334,6 +334,12 @@ export function apply(ctx: Context, rawConfig?: unknown): () => void {
   if (config.consolidation !== 'off' && subagents === undefined) {
     warn('subagents service is absent: consolidation falls back to a direct model request')
   }
+  // DSH 0.2.2 removed the per-request `start()` entry point; such hosts cannot
+  // narrow a fresh child, so the child path is ineligible and consolidation
+  // silently degrades to the direct model path. Say so once at load.
+  if (config.consolidation !== 'off' && subagents !== undefined && !canNarrowChildren(subagents)) {
+    warn('this DSH build cannot narrow a fresh child agent (per-start toolFilter was removed in 0.2.2); consolidation uses the direct model path')
+  }
 
   // `agent/status` -> idle is an emit, so this listener is never awaited: the
   // turn is already closed and the next one is not waiting on memory work.
@@ -374,14 +380,14 @@ export function apply(ctx: Context, rawConfig?: unknown): () => void {
       warn,
       // Present only when the deployment mounts a subagent provider; the
       // consolidator degrades to a direct model request without one.
-      ...(agent === undefined ? {} : {
+      ...(agent !== undefined && canNarrowChildren(subagents) ? {
         child: {
           subagents,
           provider: config.consolidationSubagentProvider,
           parent: agent as Agent,
           timeoutMs: config.consolidationTimeoutMs,
         },
-      }),
+      } : {}),
     }, capture)
       .catch((error: unknown) => {
         warn(`consolidation crashed: ${error instanceof Error ? error.message : String(error)}`)
