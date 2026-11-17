@@ -8,7 +8,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync, utimesSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync, rmSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LOCK_FILE, MAX_HISTORY_FILES, MemoryRuntime, PROJECT_MEMORY_DIR, STORE_FILE, USER_MEMORY_DIR } from '../src/runtime.ts'
@@ -92,6 +92,33 @@ test('history can be turned off without breaking the commit', () => {
     box.runtime.commit('project')
     assert.equal(existsSync(join(box.cwd, PROJECT_MEMORY_DIR, 'history')), false)
     assert.equal(JSON.parse(readFileSync(join(box.cwd, PROJECT_MEMORY_DIR, STORE_FILE), 'utf8')).entries.length, 2)
+  } finally { box.cleanup() }
+})
+
+test('a history symlink cannot redirect backups or pruning outside the tier', () => {
+  const box = sandbox()
+  try {
+    const outside = join(box.root, 'outside-history')
+    mkdirSync(outside, { recursive: true })
+    for (let i = 0; i < MAX_HISTORY_FILES + 1; i += 1) {
+      writeFileSync(join(outside, `foreign-${String(i).padStart(2, '0')}.json`), '{}')
+    }
+
+    const tierDir = join(box.cwd, PROJECT_MEMORY_DIR)
+    mkdirSync(tierDir, { recursive: true })
+    symlinkSync(outside, join(tierDir, 'history'), process.platform === 'win32' ? 'junction' : 'dir')
+
+    // The first commit creates the store without a previous revision to back up;
+    // the second reaches the history path and must refuse the symlink.
+    box.runtime.store('project').add({ text: 'first revision', origin: 'user', now: 1 })
+    box.runtime.commit('project')
+    box.runtime.store('project').add({ text: 'second revision', origin: 'user', now: 2 })
+    const result = box.runtime.commit('project')
+    assert.ok(result)
+
+    assert.equal(result.historyPath, undefined, 'no backup may be written through the symlink')
+    assert.equal(readdirSync(outside).length, MAX_HISTORY_FILES + 1, 'foreign JSON files must not be pruned')
+    assert.equal(JSON.parse(readFileSync(join(tierDir, STORE_FILE), 'utf8')).entries.length, 2, 'the main store must still commit')
   } finally { box.cleanup() }
 })
 
