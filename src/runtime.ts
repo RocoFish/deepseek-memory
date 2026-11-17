@@ -14,7 +14,7 @@
  * @module deepseek-memory/runtime
  */
 import { randomUUID } from 'node:crypto'
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, sep } from 'node:path'
 import type { MemoryConfig } from './config.ts'
 import { MemoryError, MemoryStore, type MemoryEntry, type MemoryTier } from './store.ts'
@@ -214,6 +214,31 @@ export class MemoryRuntime {
     return location
   }
 
+  /**
+   * Resolve one tier's `history/` directory without allowing it to escape.
+   *
+   * The store location is checked when first resolved, but history is a child
+   * directory: a project that ships `.dsh-memory/history` as a symlink would
+   * otherwise turn backup and pruning into write/delete operations in an
+   * unrelated tree. Reject any pre-existing history path that is a symlink or
+   * does not resolve to exactly the child of the already-validated tier dir.
+   */
+  #historyDir(location: TierLocation): string {
+    const historyDir = join(location.dir, HISTORY_DIR)
+    if (existsSync(historyDir)) {
+      const link = lstatSync(historyDir)
+      const resolvedTierDir = resolveExistingPath(location.dir)
+      const resolvedHistoryDir = resolveExistingPath(historyDir)
+      if (link.isSymbolicLink() || !link.isDirectory() || resolvedHistoryDir !== join(resolvedTierDir, HISTORY_DIR)) {
+        throw new MemoryError(
+          `the ${location.tier} memory history directory at ${historyDir} is a symlink or resolves to ${resolvedHistoryDir}, which is outside ${resolvedTierDir}. Refusing to keep history backups outside the tier directory; remove the symlink or point it back inside.`,
+          'MEMORY_STORE_ESCAPE',
+        )
+      }
+    }
+    return historyDir
+  }
+
   /** The store for one tier, loaded from disk on first use. */
   store(tier: MemoryTier): MemoryStore {
     const cached = this.#stores.get(tier)
@@ -320,14 +345,23 @@ export class MemoryRuntime {
       let historyPath: string | undefined
       if (this.#config.keepHistory && existsSync(location.file)) {
         try {
-          const historyDir = join(location.dir, HISTORY_DIR)
+          const historyDir = this.#historyDir(location)
           mkdirSync(historyDir, { recursive: true })
+          const resolvedTierDir = resolveExistingPath(location.dir)
+          const resolvedHistoryDir = resolveExistingPath(historyDir)
+          if (lstatSync(historyDir).isSymbolicLink() || resolvedHistoryDir !== join(resolvedTierDir, HISTORY_DIR)) {
+            throw new MemoryError(
+              `the ${tier} memory history directory at ${historyDir} resolves through a symlink to ${resolvedHistoryDir}, which is outside ${resolvedTierDir}. Refusing to keep history backups outside the tier directory; remove the symlink.`,
+              'MEMORY_STORE_ESCAPE',
+            )
+          }
           // The random suffix keeps two backups made in the same millisecond
           // from colliding on the timestamp name and silently overwriting each
           // other. It comes after the timestamp, so lexical order stays
-          // chronological for the pruner.
+          // chronological for the pruner. `wx` refuses to follow a pre-created
+          // symlink at the exact backup path.
           historyPath = join(historyDir, `${new Date(this.#now()).toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}.json`)
-          writeFileSync(historyPath, readFileSync(location.file))
+          writeFileSync(historyPath, readFileSync(location.file), { flag: 'wx' })
           this.#pruneHistory(historyDir)
         } catch (error) {
           // History is a convenience; losing it must never fail the write itself.
