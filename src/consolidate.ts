@@ -384,7 +384,7 @@ async function consolidateChild(
         log: deps.log,
         warn: deps.warn,
       },
-      { parent: child.parent, transcript: renderTranscript(capture), signal: controller.signal },
+      { parent: child.parent, transcript: renderTranscript(capture), signal: controller.signal, maxMutations: MAX_ACTIONS_PER_RUN },
     )
 
     const applied = outcome.changed
