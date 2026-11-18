@@ -391,7 +391,7 @@ A structural interface can drift from the real one, so
 [`src/typecheck.ts`](src/typecheck.ts) pins the plugin's interfaces to the published
 SDK types. That check has already caught two real errors: a `readonly ContentBlock[]`
 where the SDK requires a mutable array, and an `outputSchema` typed too loosely to be
-assigned. Version 0.1.1 re-targeted it at `@deepseek-ai/dsh-subagent@0.2.2-rc.1`,
+assigned. Version 0.1.1 re-targets it at `@deepseek-ai/dsh-subagent@0.2.2-rc.1`,
 where `SubagentRuntime.start()` was removed in favour of `startActivation()`: the
 plugin's `SubagentConsolidator.start` is now optional, and
 [`canNarrowChildren()`](src/subagent.ts) probes at runtime whether the host can
