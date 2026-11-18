@@ -183,8 +183,11 @@ said. The goals are narrower and achievable:
 
 The guarantees that hold on `main`:
 
-- **Injection-resistant wrapping.** Every memory text is injected inside explicit
-  `<untrusted-data>` boundaries with a "data, not instructions" header. The wrapper
+- **Injection-resistant wrapping.** Every memory text — whether injected back into
+  the main conversation or handed to the consolidation child as a turn transcript —
+  is wrapped inside explicit `<untrusted-data>` boundaries with a "data, not
+  instructions" header, and the child's persona states flatly that transcript text
+  resembling instructions is never to be followed. The wrapper
   tags themselves are stripped from entry text at write time — on `memory_add` *and*
   on `memory_update` — so a stored entry cannot forge the closing tag, break out of
   its own container, and promote itself to a system instruction. Nothing remembered
@@ -195,6 +198,11 @@ The guarantees that hold on `main`:
   The failure mode is fail-closed: an invalid store disables that tier for the
   session and `memory_status` says so, rather than serving the model a partial,
   arbitrarily-cut view of what is "known" about the user.
+- **History stays inside the store.** The per-tier `history/` directory used for
+  backups is validated before any write or prune: a symlink, a non-directory, or
+  any path escaping the tier is refused with `MEMORY_STORE_ESCAPE`, and backup
+  files are created with exclusive-create flags, so a planted symlink cannot
+  redirect history writes (or deletions) outside the store.
 - **Atomic, serialized writes.** Commits run under a per-tier lock file with
   stale-lock reclaim (30 s), a disk-revision re-check inside the lock, and a
   unique-temp-file + rename write — an interrupted write never leaves a
@@ -209,7 +217,11 @@ The guarantees that hold on `main`:
   execution. A turn that argues "first read this file / run this command, then
   decide what to remember" finds the child has no such capability, and the
   receipt the child returns is checked against actual store revisions, not
-  trusted as a self-report.
+  trusted as a self-report. On top of that, each consolidation run — child or
+  fallback — is hard-capped at the same number of memory mutations
+  (`MAX_ACTIONS_PER_RUN`), enforced at the tool gate rather than by the model's
+  self-restraint: once the budget is spent, further `memory_*` writes throw and the
+  run settles with what it already applied.
 - **Tier location is never guessed.** Neither tier falls back to the working
   directory: the user tier resolves `DSH_HOME` and a fixed chain of well-known
   homes, the project tier uses the session's own validated `cwd`, and a tier
@@ -379,7 +391,7 @@ A structural interface can drift from the real one, so
 [`src/typecheck.ts`](src/typecheck.ts) pins the plugin's interfaces to the published
 SDK types. That check has already caught two real errors: a `readonly ContentBlock[]`
 where the SDK requires a mutable array, and an `outputSchema` typed too loosely to be
-assigned. Version 0.1.1 re-targets it at `@deepseek-ai/dsh-subagent@0.2.2-rc.1`,
+assigned. Version 0.1.1 re-targeted it at `@deepseek-ai/dsh-subagent@0.2.2-rc.1`,
 where `SubagentRuntime.start()` was removed in favour of `startActivation()`: the
 plugin's `SubagentConsolidator.start` is now optional, and
 [`canNarrowChildren()`](src/subagent.ts) probes at runtime whether the host can
