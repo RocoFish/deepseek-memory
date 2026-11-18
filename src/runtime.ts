@@ -132,6 +132,12 @@ export class MemoryRuntime {
   /** The value `#cwd()` last produced, so a change can invalidate the cache. */
   #cwdSeen: string | null | undefined
   readonly #now: () => number
+  /**
+   * Per-run cap on mutating memory-tool calls, armed only while the child
+   * consolidator runs. Undefined means no cap: the main assistant's own
+   * memory-tool calls are never budgeted.
+   */
+  #mutationBudget: number | undefined
 
   /**
    * @param config - validated plugin configuration.
@@ -281,6 +287,41 @@ export class MemoryRuntime {
   refresh(): void {
     this.#stores.clear()
     this.#locations.clear()
+  }
+
+  /**
+   * Arm a cap on mutating memory-tool calls (add/update/delete).
+   *
+   * Used only by the child consolidator: a run that can call all memory tools
+   * through an injected transcript needs the same "one run cannot rewrite the
+   * store" bound the direct path gets from {@link MAX_ACTIONS_PER_RUN}, enforced
+   * at the tool gate rather than by trusting the model to stop.
+   */
+  armMutationBudget(cap: number): void {
+    this.#mutationBudget = Math.max(0, Math.floor(cap))
+  }
+
+  /** Remove the cap. Called when the run that armed it settles, whatever happened. */
+  disarmMutationBudget(): void {
+    this.#mutationBudget = undefined
+  }
+
+  /**
+   * Gate one mutating memory-tool call.
+   *
+   * A no-op when no budget is armed. When armed, each call consumes one slot
+   * and a call beyond the cap throws before the store is touched, so a spent
+   * budget can never leave an uncommitted mutation in the cache.
+   */
+  gateMutation(): void {
+    if (this.#mutationBudget === undefined) return
+    if (this.#mutationBudget <= 0) {
+      throw new MemoryError(
+        'this memory run has already applied its maximum number of changes. Make no further memory changes and report what you changed.',
+        'MEMORY_RUN_BUDGET_EXHAUSTED',
+      )
+    }
+    this.#mutationBudget -= 1
   }
 
   /**
