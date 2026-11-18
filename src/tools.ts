@@ -133,6 +133,7 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
       },
       output: textOutput(),
       async execute(args) {
+        runtime.gateMutation()
         const tier = resolveTier(runtime, args.tier ?? 'auto')
         const store = runtime.store(tier)
         const result = store.add({
@@ -161,6 +162,7 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
       },
       output: textOutput(),
       async execute(args) {
+        runtime.gateMutation()
         const tier = resolveTier(runtime, args.tier ?? 'auto')
         const store = runtime.store(tier)
         const updated = store.update({
@@ -184,6 +186,7 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
       },
       output: textOutput(),
       async execute(args) {
+        runtime.gateMutation()
         const tier = resolveTier(runtime, args.tier ?? 'auto')
         const store = runtime.store(tier)
         const removed = store.remove(args.id, Date.now())
