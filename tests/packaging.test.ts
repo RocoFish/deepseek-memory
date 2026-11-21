@@ -15,9 +15,10 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
+import { spawnSync } from 'node:child_process'
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const libDir = join(repoRoot, 'lib')
@@ -84,4 +85,44 @@ test('the built entry exports the namespace-plugin shape and no default', async 
   assert.ok(Array.isArray(built.inject))
   assert.equal(built.default, undefined,
     `the loader binds the namespace, so a default export is wrong here; exports were ${keys.join(', ')}`)
+})
+
+
+/** All files below `directory`, using POSIX separators for stable comparisons. */
+function outputFiles(directory: string): string[] {
+  if (!existsSync(directory)) return []
+  const files: string[] = []
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name)
+    if (entry.isDirectory()) files.push(...outputFiles(path))
+    else if (!entry.name.endsWith('.map')) files.push(relative(directory, path).replaceAll('\\', '/'))
+  }
+  return files.sort()
+}
+
+test('the committed lib matches a fresh build of src', () => {
+  // The package entry is lib/index.js, including for direct git installs. A fix
+  // that exists only in src therefore leaves the installed plugin vulnerable.
+  // Build into a temporary directory so this check never masks drift by
+  // rewriting the very output it is meant to verify.
+  const freshDir = mkdtempSync(join(repoRoot, '.build-check-'))
+  try {
+    const result = spawnSync(process.execPath, [
+      join(repoRoot, 'node_modules', 'typescript', 'bin', 'tsc'),
+      '-p', join(repoRoot, 'tsconfig.build.json'),
+      '--outDir', freshDir,
+    ], { cwd: repoRoot, encoding: 'utf8' })
+    assert.equal(result.status, 0, `fresh build failed:\n${result.stdout}${result.stderr}`)
+
+    const committedFiles = outputFiles(libDir)
+    const freshFiles = outputFiles(freshDir)
+    assert.deepEqual(committedFiles, freshFiles,
+      'lib/ and a fresh src build contain different files; run `npm run build` and commit lib/')
+    const drifted = freshFiles.filter(name =>
+      readFileSync(join(libDir, name), 'utf8') !== readFileSync(join(freshDir, name), 'utf8'))
+    assert.deepEqual(drifted, [],
+      'committed lib/ is stale; run `npm run build` and commit the rebuilt output')
+  } finally {
+    rmSync(freshDir, { recursive: true, force: true })
+  }
 })
