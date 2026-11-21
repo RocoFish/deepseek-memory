@@ -64,6 +64,25 @@ export declare class MemoryRuntime {
     /** Drop the cache so the next read observes on-disk edits. */
     refresh(): void;
     /**
+     * Arm a cap on mutating memory-tool calls (add/update/delete).
+     *
+     * Used only by the child consolidator: a run that can call all memory tools
+     * through an injected transcript needs the same "one run cannot rewrite the
+     * store" bound the direct path gets from {@link MAX_ACTIONS_PER_RUN}, enforced
+     * at the tool gate rather than by trusting the model to stop.
+     */
+    armMutationBudget(cap: number): void;
+    /** Remove the cap. Called when the run that armed it settles, whatever happened. */
+    disarmMutationBudget(): void;
+    /**
+     * Gate one mutating memory-tool call.
+     *
+     * A no-op when no budget is armed. When armed, each call consumes one slot
+     * and a call beyond the cap throws before the store is touched, so a spent
+     * budget can never leave an uncommitted mutation in the cache.
+     */
+    gateMutation(): void;
+    /**
      * Atomically commit one tier's current state, keeping the previous revision.
      *
      * Two refusal guards, both cheaper than the failures they prevent:

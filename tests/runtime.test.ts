@@ -8,7 +8,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync, rmSync, utimesSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync, rmSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LOCK_FILE, MAX_HISTORY_FILES, MemoryRuntime, PROJECT_MEMORY_DIR, STORE_FILE, USER_MEMORY_DIR } from '../src/runtime.ts'
@@ -80,6 +80,25 @@ test('a commit keeps the previous revision recoverable', () => {
     assert.equal(previous.entries.length, 1)
     assert.equal(previous.entries[0].text, 'first revision of the fact')
     assert.equal(JSON.parse(readFileSync(file, 'utf8')).entries.length, 2)
+  } finally { box.cleanup() }
+})
+
+test('committed memory files and directories are private to the current user', { skip: process.platform === 'win32' }, () => {
+  const box = sandbox()
+  try {
+    box.runtime.store('project').add({ text: 'first private revision', origin: 'user', now: 1 })
+    box.runtime.commit('project')
+    box.runtime.store('project').add({ text: 'second private revision', origin: 'user', now: 2 })
+    const result = box.runtime.commit('project')
+
+    const tierDir = join(box.cwd, PROJECT_MEMORY_DIR)
+    const historyDir = join(tierDir, 'history')
+    const mode = (path: string) => statSync(path).mode & 0o777
+    assert.equal(mode(tierDir), 0o700, 'the tier directory must not be accessible to other users')
+    assert.equal(mode(join(tierDir, STORE_FILE)), 0o600, 'the memory store must be owner-only')
+    assert.equal(mode(historyDir), 0o700, 'the history directory must not be accessible to other users')
+    assert.ok(result?.historyPath, 'the second commit must produce a history backup')
+    assert.equal(mode(result.historyPath), 0o600, 'history backups must be owner-only')
   } finally { box.cleanup() }
 })
 

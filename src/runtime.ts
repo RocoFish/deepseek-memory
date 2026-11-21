@@ -355,7 +355,7 @@ export class MemoryRuntime {
       )
     }
 
-    mkdirSync(location.dir, { recursive: true })
+    mkdirSync(location.dir, { recursive: true, mode: 0o700 })
 
     // The whole check-and-write sequence runs under the per-tier lock, so two
     // processes cannot pass the revision check against the same base revision
@@ -387,7 +387,7 @@ export class MemoryRuntime {
       if (this.#config.keepHistory && existsSync(location.file)) {
         try {
           const historyDir = this.#historyDir(location)
-          mkdirSync(historyDir, { recursive: true })
+          mkdirSync(historyDir, { recursive: true, mode: 0o700 })
           const resolvedTierDir = resolveExistingPath(location.dir)
           const resolvedHistoryDir = resolveExistingPath(historyDir)
           if (lstatSync(historyDir).isSymbolicLink() || resolvedHistoryDir !== join(resolvedTierDir, HISTORY_DIR)) {
@@ -402,7 +402,7 @@ export class MemoryRuntime {
           // chronological for the pruner. `wx` refuses to follow a pre-created
           // symlink at the exact backup path.
           historyPath = join(historyDir, `${new Date(this.#now()).toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}.json`)
-          writeFileSync(historyPath, readFileSync(location.file), { flag: 'wx' })
+          writeFileSync(historyPath, readFileSync(location.file), { flag: 'wx', mode: 0o600 })
           this.#pruneHistory(historyDir)
         } catch (error) {
           // History is a convenience; losing it must never fail the write itself.
@@ -418,7 +418,7 @@ export class MemoryRuntime {
       const payload = `${JSON.stringify(store.toFile(this.#now()), undefined, 2)}\n`
       const temp = `${location.file}.tmp-${process.pid}-${randomUUID()}`
       try {
-        writeFileSync(temp, payload, 'utf8')
+        writeFileSync(temp, payload, { encoding: 'utf8', mode: 0o600 })
         renameSync(temp, location.file)
       } catch (error) {
         try { rmSync(temp, { force: true }) } catch { /* nothing left to clean */ }
@@ -445,7 +445,7 @@ export class MemoryRuntime {
     const deadline = Date.now() + LOCK_WAIT_MS
     for (;;) {
       try {
-        const handle = openSync(lockPath, 'wx')
+        const handle = openSync(lockPath, 'wx', 0o600)
         try {
           writeFileSync(handle, `${process.pid}\n`)
         } finally {
