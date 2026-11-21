@@ -2,6 +2,49 @@
 
 Notable changes to `deepseek-memory`. Versions follow [semver](https://semver.org/).
 
+## 0.1.4
+
+Version-metadata fix — no code changes.
+
+**Fixed**
+
+- `package.json`'s `version` field lagged the git tags: v0.1.2 and v0.1.3 were
+  cut while `version` still read `0.1.1`, so plugin listings that install from
+  the git source kept showing `0.1.1` no matter which tag was checked out. The
+  manifest now reads `0.1.4`, matching the v0.1.4 tag.
+
+## 0.1.3
+
+Release hygiene for the 0.1.2 security fixes: the committed build output and
+the dependency snapshot are brought in line with the verified local build.
+Backfilled from git history — the tag shipped without a manifest bump.
+
+**Fixed**
+
+- Transitive `zod` pinned to the patched `4.6.6` release.
+- The committed `lib/` output is byte-identical to a fresh `tsc` build of the
+  security-fixed sources (runtime, tools, consolidate, subagent and their
+  declarations), so a git install loads exactly what the sources describe.
+- The lockfile and the `pnpm.overrides` pin agree with the verified local
+  build; the dependency snapshot no longer diverges from what CI and the
+  release build actually resolve.
+
+## 0.1.2
+
+Security hardening. Backfilled from git history — the tag shipped without a
+manifest bump.
+
+**Fixed**
+
+- History symlinks that resolve outside their tier directory are refused with
+  `MEMORY_STORE_ESCAPE` instead of being read or written through.
+- History backup names gain an 8-character random suffix so two backups taken
+  in the same millisecond no longer silently overwrite each other (lexical
+  order stays chronological for the pruner).
+- Child consolidation runs now carry a per-run mutation budget enforced at the
+  memory tool gate, and the child transcript is wrapped as untrusted data so
+  it cannot prompt-inject its way to more authority than the runtime grants.
+
 ## 0.1.1
 
 Compatibility with DSH 0.2.2-rc.1.

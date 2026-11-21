@@ -1,6 +1,6 @@
 {
   "name": "deepseek-memory",
-  "version": "0.1.1",
+  "version": "0.1.4",
   "description": "Curated long-term memory for DeepSeek Harness: two tiers of small plain-text facts, memory tools, per-request injection, and after-turn consolidation.",
   "license": "MIT",
   "author": "RocoFish",
@@ -55,7 +55,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"tests/**/*.test.ts\"",
     "test:sandbox": "node --import ./tests/register-hook.mjs tests/run.ts",
-    "check": "npm run typecheck && npm run build && npm test",
+    "check": "npm run typecheck && npm run build && npm run test",
     "prepublishOnly": "npm run typecheck && npm run build"
   },
   "peerDependencies": {
