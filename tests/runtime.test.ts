@@ -392,6 +392,21 @@ test('a stale lock left by a crashed process is reclaimed, a live one is not', (
   } finally { box.cleanup() }
 })
 
+test('the per-run mutation budget gates writes only while armed', () => {
+  const box = sandbox()
+  try {
+    box.runtime.gateMutation()
+    box.runtime.armMutationBudget(1)
+    box.runtime.gateMutation()
+    assert.throws(
+      () => box.runtime.gateMutation(),
+      (error: unknown) => error instanceof Error && 'code' in error && (error as { code: string }).code === 'MEMORY_RUN_BUDGET_EXHAUSTED',
+    )
+    box.runtime.disarmMutationBudget()
+    box.runtime.gateMutation()
+  } finally { box.cleanup() }
+})
+
 function exaddirSafe(dir: string): string[] {
   try {
     return readdirSync(dir)
