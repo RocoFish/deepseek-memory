@@ -60,7 +60,14 @@ dsh plugin --profile web add github:RocoFish/deepseek-memory
 不是推断。真正能去掉这一步的做法就是：提交 `lib/`，并删掉那个条目。`prepublishOnly` 仍然
 会在发布 npm 包时构建，那条路径不影响任何使用者。
 
-贡献者克隆仓库后没有 `lib/`（也可以自行删除），用 `npm install && npm run build` 构建即可。
+贡献者克隆仓库后没有 `lib/`（也可以自行删除），用 `pnpm install && pnpm run build` 构建即可。
+
+**本仓库的开发与审计都以 pnpm 为准，`pnpm-lock.yaml` 是唯一的锁文件。**
+`package.json` 里有只有 pnpm 才会应用的 `pnpm.overrides`（zod 钉在 4.6.6），
+所以用 `npm install` 或 `npm audit` 会绕开这些钉子、按 semver 区间重新解析，
+报告出锁定树里根本不存在的漏洞——那种“high”是假阳性，不是有依赖没补。
+请以 `pnpm audit` 为准（当前报告无已知漏洞）；CI 在每次 push 和 pull request
+上都跑同一条显式审计。
 
 装完重启该 profile。
 

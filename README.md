@@ -70,7 +70,15 @@ and dropping the entry is what actually removes the step; `prepublishOnly` still
 for npm, where no consumer is affected.
 
 Contributors cloning the repository get no `lib/` (or can delete it) and build with
-`npm install && npm run build`.
+`pnpm install && pnpm run build`.
+
+**This repository is developed and audited with pnpm; `pnpm-lock.yaml` is the one
+lockfile.** `package.json` carries `pnpm.overrides` (zod is pinned to 4.6.6) that
+only pnpm applies, so running `npm install` or `npm audit` re-resolves the semver
+ranges without those pins and reports vulnerabilities the locked tree does not
+actually contain — the "high" severities that produces are false positives, not
+unpatched dependencies. Verify with `pnpm audit`, which reports a clean tree; CI
+runs the same explicit audit on every push and pull request.
 
 Restart the profile afterwards.
 

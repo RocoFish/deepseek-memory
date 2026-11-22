@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    # The test suite is calibrated on Windows: the user-tier resolution tests in
+    # tests/home.test.ts assert Windows path shapes, so they fail on Linux runners.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      # Explicit audit, kept on purpose: .npmrc sets audit=false to silence
+      # install-time chatter, so this step is the dependency audit. It reads the
+      # pnpm lockfile with pnpm.overrides applied — npm audit against this
+      # repository re-resolves without those pins and reports false positives
+      # (see README). If this step fails, the lockfile is actually stale.
+      - name: audit dependencies
+        run: pnpm audit
+
+      - name: typecheck
+        run: pnpm run typecheck
+
+      - name: build
+        run: pnpm run build
+
+      - name: test
+        run: pnpm test
