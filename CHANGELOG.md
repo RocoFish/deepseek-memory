@@ -45,7 +45,7 @@ Version-metadata fix — no code changes.
 ## 0.1.3
 
 Release hygiene for the 0.1.2 security fixes: the committed build output and
-.the dependency snapshot are brought in line with the verified local build.
+the dependency snapshot are brought in line with the verified local build.
 Backfilled from git history — the tag shipped without a manifest bump.
 
 **Fixed**
