@@ -64,6 +64,16 @@ test('project scope beats personal-global inside a project session', () => {
     'the losing card is kept for the arbitration view, not deleted')
 })
 
+test('the winner listed first still reports the axis that decided the group', () => {
+  // The winner must not depend on candidate order: with the project card
+  // first, the group is still decided by scope, not by the default recency.
+  const projectCard = card({ scope: 'project', subject: 'deepseek-memory', key: 'test-runner', text: 'this repo uses node:test' })
+  const globalCard = card({ scope: 'personal-global', subject: 'deepseek-memory', key: 'test-runner', text: 'prefers vitest everywhere' })
+  const { groups } = resolveEffective([projectCard, globalCard])
+  assert.equal(groups[0]!.effective.id, projectCard.id)
+  assert.equal(groups[0]!.decidedBy, 'scope')
+})
+
 test('a user-confirmed card beats a newer assistant inference in the same scope', () => {
   const confirmed = card({ scope: 'personal-global', key: 'search-engine', text: 'search with Bing first', confidence: 'user-confirmed', updatedAt: 1 })
   const inferred = card({ scope: 'personal-global', key: 'search-engine', text: 'maybe prefers Google now', confidence: 'medium', source: 'assistant', updatedAt: 99 })
