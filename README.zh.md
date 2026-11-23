@@ -37,7 +37,7 @@
 | 部件 | 行为 |
 | --- | --- |
 | **两层记忆** | `user`（`$DSH_HOME/memory/`）记“这个人是谁”；`project`（`<cwd>/.dsh-memory/`）记这个仓库的约定与决策。 |
-| **工具** | `memory_add`、`memory_update`、`memory_delete`、`memory_list`、`memory_search`、`memory_status`。`memory_add` 新增可选 `subject`；`memory_list` 显示每张卡的户籍与状态；`memory_status` 报告作用域越界，但不替你处理。 |
+| **工具** | `memory_add`、`memory_update`、`memory_delete`、`memory_list`、`memory_search`、`memory_status`，以及用于裁决冲突、回滚和带库出行的 `memory_conflicts`、`memory_arbitrate`、`memory_snapshot`、`memory_restore`、`memory_export`。`memory_add` 新增可选 `subject`；`memory_list` 显示每张卡的户籍与状态；`memory_status` 报告作用域越界，但不替你处理。 |
 | **注入** | 一个 `systemPrompt` 区段，其 `text` 是**每次装配时求值的 provider**。不往会话历史里写任何东西。 |
 | **轮末整理** | 由一个**受限 child agent** 只通过记忆工具审阅刚结束的那一轮。 |
 | **明文存储** | 库是可读 JSON，可手改、可 git diff；每次改动保留上一版。 |
@@ -271,6 +271,32 @@ confidence、再按新旧裁决——败者以 **shadowed** 身份留在库里�
 项目层是给**用户在自己的仓库里**提交用的；不想共享就往项目的 `.gitignore` 里加
 `.dsh-memory/`。
 
+## 仲裁、导出与快照
+
+户籍登记让冲突**看得见**；这组工具让你**裁得动**、**带得走**、**回得去**。系统只报告、
+只建议——绝不静默改写任何一张卡，也没有任何裁决会删除一张卡。
+
+- `memory_conflicts`——**只读**的仲裁台。把两层所有卡按 `(subject, key)` 分组，
+  显示哪条生效、**为什么生效**（scope、confidence 或 recency，以最强的败者为参照）、
+  压掉了谁，以及哪些事在等人裁决：disputed 组、住在辖权之外的卡、没人认领的
+  imported 卡、只有弱支撑的生效卡。它什么都不改。
+- `memory_arbitrate`——四个**经确认**的裁决动作。`adopt` 采纳一条：它升为
+  `user-confirmed`，活竞争者降为 `superseded`（保留不删），胜者把败者 id 记进自己
+  的 `supersedes`，裁决日后可回放。`merge` 把多张卡并为一张新卡。`mark-wrong`
+  把卡归档（留档备查）。`confirm-import` 把 imported 卡转入正式 scope，必要时跨层
+  搬移。每个动作执行前都会先给整个库打一份 pre-op 快照。
+- `memory_snapshot` / `memory_restore`——可命名的整库还原点。快照拍的是**磁盘上的
+  真身**，存放在用户层（`$DSH_HOME/memory/snapshots/`），绝不落进项目仓库。保留
+  策略：pre-op 留最新 20 份、每日 7 份、每周 4 份、pre-restore 10 份；当天/当周
+  的首次会话会自动补每日/每周快照。恢复**必须先预览**：差异按 `added`、`removed`、
+  `modified`、`conflicts` 四类分桶——冲突指当前侧在快照**之后**又改过的卡——apply
+  只写明确勾选的项，落盘前先把当前库备份为 `pre-restore`。
+- `memory_export`——把库带在身上。一卡一 Markdown + YAML frontmatter，附一份
+  人打开就能懂的 `INDEX.md`（`markdown`）；一卡一行、可 diff 可机读的 JSONL
+  （`jsonl`）；或全量打包 zip（`zip`）。`MANIFEST.json` 用 SHA-256 给每个文件
+  签名；形似凭证的串（token、PAT、私钥）**默认打码并按类计数**，绝不原样落盘；
+  `format: "verify"` 可以在事后校验一份导出，点名缺了或被动过的是哪个文件。
+
 ## 设计说明
 
 有四条约束塑造了这个实现，改动前值得先知道。记忆模型本身——存什么、为什么——的
@@ -406,7 +432,7 @@ ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/schemastery'
 里零裸说明符，静态**和**动态都算，所以这一点不会静默回归。
 
 最后一个文件也是插件“验证过能工作”的原因：`defineTool` 是本地的，`createMemoryTools()`
-在一个普通进程里、没有解析钩子、模块图上没有 SDK，也能返回全部六个工具。
+在一个普通进程里、没有解析钩子、模块图上没有 SDK，也能返回全部十一个工具。
 
 ## 常见问题
 
@@ -433,7 +459,7 @@ ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/schemastery'
   它是否**听起来**留下了可沉淀的东西。
 - **不自动合并近似条目。** 同一事实的两种措辞在盘上仍是两条。当它们回答同一个
   `(subject, key)` 时，冲突裁决会在注入视图里 shadow 掉其余卡——但合并或删除
-  仍由你通过 `memory_update` / `memory_delete` 完成。
+  仍由你通过仲裁台完成：`memory_conflicts` 看见分组，`memory_arbitrate` 落槌。
 - **`maxEntries` 是每层上限，不是全局上限**，所以两层都开时最多可存两倍的条目数。
   （只计 `active` 与 `disputed` 活卡；被取代和归档的卡不占额度。）
 - **child 只能写记忆，所以它得出的其他结论会被丢弃。** 这是有意为之，但也意味着“需要
