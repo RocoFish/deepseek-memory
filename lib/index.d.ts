@@ -118,4 +118,3 @@ export declare function resolveDshHome(safeGet: <T>(key: string) => T | undefine
     source: HomeSource;
 };
 export { MemoryError };
-//# sourceMappingURL=index.d.ts.map

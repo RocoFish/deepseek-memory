@@ -55,8 +55,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"tests/**/*.test.ts\"",
     "test:sandbox": "node --import ./tests/register-hook.mjs tests/run.ts",
-    "check": "npm run typecheck && npm run build && npm run test",
-    "prepublishOnly": "npm run typecheck && npm run build"
+    "check": "pnpm run typecheck && pnpm run build && pnpm run test",
+    "prepublishOnly": "pnpm run typecheck && pnpm run build"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",

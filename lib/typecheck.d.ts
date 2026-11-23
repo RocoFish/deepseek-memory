@@ -34,4 +34,3 @@ export declare const _ctxHasSubagents: () => SubagentRuntime;
 export declare function _parentIsAgent(request: SubagentStartLike): Agent;
 export declare const _activationFitsRunHandle: SubagentRunLike;
 export declare const _activationResultFitsReceipt: Awaited<SubagentRunLike['result']>;
-//# sourceMappingURL=typecheck.d.ts.map

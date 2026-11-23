@@ -22,7 +22,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { join } from 'node:path'
 import type { MemoryRuntime } from './runtime.ts'
 import type { MemoryTier, StoreFile } from './store.ts'
-import { MemoryError } from './store.ts'
+import { MemoryError, MemoryStore } from './store.ts'
 
 /** Directory (inside the auxiliary tier) holding snapshots. */
 export const SNAPSHOT_DIR = 'snapshots'
@@ -187,6 +187,25 @@ export function loadSnapshot(runtime: MemoryRuntime, id: string): SnapshotFile {
   if (parsed.snapshotVersion !== SNAPSHOT_FORMAT || typeof parsed.id !== 'string' || parsed.id !== id
     || typeof parsed.createdAt !== 'number' || typeof parsed.tiers !== 'object' || parsed.tiers === null) {
     throw new MemoryError(`snapshot at ${file} is malformed or uses an unsupported format.`, 'MEMORY_SNAPSHOT_MALFORMED')
+  }
+  // Shell validation is not entry validation. A snapshot file can arrive
+  // hand-edited, corrupted, or from a shared project tier, and restore feeds
+  // its entries straight into the store through the byte-preserving restore
+  // path — so every tier file must pass the same per-entry normalization and
+  // bounds the live store enforces on load, before any selection is applied.
+  // Entries that survive come back normalized; a file the store would refuse
+  // is refused here, with the store's own diagnostic.
+  const tiers = parsed.tiers as Record<string, unknown>
+  for (const [tierName, tierFile] of Object.entries(tiers)) {
+    if (tierName !== 'user' && tierName !== 'project') {
+      throw new MemoryError(`snapshot at ${file} carries an unknown tier "${tierName}".`, 'MEMORY_SNAPSHOT_MALFORMED')
+    }
+    if (tierFile === null || typeof tierFile !== 'object' || !Array.isArray((tierFile as StoreFile).entries)) {
+      throw new MemoryError(`snapshot at ${file} holds no entries array for its ${tierName} tier.`, 'MEMORY_SNAPSHOT_MALFORMED')
+    }
+    const store = new MemoryStore(tierName, runtime.storeLimits())
+    store.load(tierFile, `snapshot ${id} (${tierName} tier)`)
+    tiers[tierName] = { ...(tierFile as StoreFile), entries: store.entries() }
   }
   return parsed as SnapshotFile
 }

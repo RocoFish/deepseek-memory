@@ -141,4 +141,3 @@ export declare function runChildConsolidation(deps: {
 }): Promise<ChildConsolidationOutcome>;
 /** Which tiers participated, for diagnostics. */
 export declare function tiersUsed(runtime: MemoryRuntime): MemoryTier[];
-//# sourceMappingURL=subagent.d.ts.map

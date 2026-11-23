@@ -76,4 +76,3 @@ export declare function resolveEffective(entries: readonly MemoryEntry[], contex
 export declare function detectScopeViolation(entry: MemoryEntry, tier: MemoryTier): boolean;
 /** Every card in a store that violates its tier's scope remit, for the arbitration view. */
 export declare function findScopeViolations(entries: readonly MemoryEntry[], tier: MemoryTier): MemoryEntry[];
-//# sourceMappingURL=scope.d.ts.map

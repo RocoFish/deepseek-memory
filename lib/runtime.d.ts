@@ -55,6 +55,10 @@ export declare class MemoryRuntime {
     /** Tiers that are enabled and have a usable location. */
     enabledTiers(): MemoryTier[];
     /** The store for one tier, loaded from disk on first use. */
+    storeLimits(): {
+        maxEntries: number;
+        maxEntryChars: number;
+    };
     store(tier: MemoryTier): MemoryStore;
     /** Every enabled tier's store, in injection priority order. */
     stores(): {
@@ -118,4 +122,3 @@ export declare class MemoryRuntime {
 }
 /** The directory a tier owns, without touching the filesystem. */
 export declare function tierDirFor(tier: MemoryTier, dshHome: string | undefined, cwd: string | null | undefined): string;
-//# sourceMappingURL=runtime.d.ts.map

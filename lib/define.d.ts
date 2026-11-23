@@ -269,4 +269,3 @@ export declare function validateArgs(schema: ParameterJsonSchema, args: unknown)
  */
 export declare function defineTool<const S extends ParameterSchemaSpec, const O extends ValueSchemaSpec>(options: DefineToolOptions<S, O>): ToolDefinition;
 export {};
-//# sourceMappingURL=define.d.ts.map

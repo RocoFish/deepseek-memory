@@ -46,4 +46,3 @@ export interface GateInput {
 export declare function evaluateGate(input: GateInput): GateDecision;
 /** One-line explanation for logs, so a skipped or taken run is auditable. */
 export declare function describeDecision(decision: GateDecision): string;
-//# sourceMappingURL=gate.d.ts.map

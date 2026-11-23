@@ -40,4 +40,3 @@ declare module '@deepseek-ai/dsh-llm' {
 }
 /** The source object every message this plugin injects carries. */
 export declare function memorySource(): UserMessage['source'];
-//# sourceMappingURL=source.d.ts.map

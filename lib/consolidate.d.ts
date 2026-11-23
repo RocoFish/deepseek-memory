@@ -129,4 +129,3 @@ export interface ConsolidatorDeps {
  * @returns what happened, including the reason when nothing ran.
  */
 export declare function consolidateTurn(deps: ConsolidatorDeps, capture: TurnCapture, signal?: AbortSignal): Promise<ConsolidationOutcome>;
-//# sourceMappingURL=consolidate.d.ts.map

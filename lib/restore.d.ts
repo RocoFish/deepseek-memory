@@ -85,4 +85,3 @@ export declare function applyRestore(runtime: MemoryRuntime, snapshot: SnapshotF
         modified: number;
     }[];
 };
-//# sourceMappingURL=restore.d.ts.map
