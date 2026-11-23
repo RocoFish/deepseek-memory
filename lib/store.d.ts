@@ -183,12 +183,12 @@ export declare class MemoryStore {
      * Load a parsed store file.
      *
      * Formats from {@link MIN_READ_FORMAT} through {@link STORE_FORMAT} are read;
-     *     * older files are migrated in memory (v1 entries gain their household
-     *     * registration from defaults, see {@link migrateV1Entry}) and are persisted
-     *     * as the current format on the next commit. A file written by a *newer*
-     *     * format is refused instead of guessed at, because silently dropping fields
-     *     * the running build does not know about is how a memory store loses data
-     *     * without anyone noticing.
+     * older files are migrated in memory (v1 entries gain their household
+     * registration from defaults, see {@link migrateV1Entry}) and are persisted
+     * as the current format on the next commit. A file written by a *newer*
+     * format is refused instead of guessed at, because silently dropping fields
+     * the running build does not know about is how a memory store loses data
+     * without anyone noticing.
      * @param raw - parsed JSON, however malformed.
      * @param source - where it came from, for diagnostics.
      */
