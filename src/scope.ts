@@ -157,7 +157,9 @@ export function resolveEffective(entries: readonly MemoryEntry[], context: Resol
 
   const byGroup = new Map<string, MemoryEntry[]>()
   for (const entry of candidates) {
-    const groupKey = `${entry.subject.trim().toLowerCase()} ${entry.key.trim().toLowerCase()}`
+    // The \u0001 separator cannot appear in a normalized label, so two distinct
+    // (subject, key) pairs can never collide onto one group key.
+    const groupKey = `${entry.subject.trim().toLowerCase()}\u0001${entry.key.trim().toLowerCase()}`
     const bucket = byGroup.get(groupKey)
     if (bucket === undefined) byGroup.set(groupKey, [entry])
     else bucket.push(entry)
