@@ -238,6 +238,37 @@ export declare class MemoryStore {
      * @throws {MemoryError} when the id is unknown.
      */
     remove(id: string, now: number): MemoryEntry;
+    /**
+     * Change one card's household-registration fields — status, confidence, and
+     * the supersedes chain — as a single replayable arbitration step.
+     *
+     * This is the write path behind the arbitration console: adopting a value,
+     * demoting a loser, or confirming an import never rewrites the card's text
+     * or identity, so the audit trail (`who decided what, when`) survives. Only
+     * the fields an arbitration can legitimately touch are accepted; text edits
+     * go through {@link MemoryStore.update}, which re-validates content.
+     * @throws {MemoryError} when the id is unknown.
+     */
+    adjudicate(input: {
+        id: string;
+        scope?: MemoryScope;
+        status?: MemoryStatus;
+        confidence?: MemoryConfidence;
+        supersedes?: readonly string[];
+        origin: MemoryEntry['origin'];
+        now: number;
+    }): MemoryEntry;
+    /**
+     * Insert one entry by id, replacing any entry with the same id, without
+     * re-validating scope or content.
+     *
+     * This exists for exactly one caller: snapshot restore. A snapshot's entries
+     * were valid when written, and restore must reproduce them byte-for-byte —
+     * running them through {@link MemoryStore.add} would re-derive ids from text
+     * and reject scopes the write path normally forbids, which turns recovery
+     * into a second loss. Every other caller must use the validated paths.
+     */
+    upsertRestored(entry: MemoryEntry): void;
     /** List entries, optionally narrowed by a literal case-insensitive substring. */
     list(query?: string): MemoryEntry[];
 }
