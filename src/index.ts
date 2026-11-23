@@ -45,6 +45,7 @@ import { consolidateTurn, type TurnCapture } from './consolidate.ts'
 import { createMemoryUserMessage } from './message.ts'
 import { MEMORY_SECTION, MEMORY_SECTION_ORDER, renderMemory, type TierView } from './prompt.ts'
 import { resolveEffective } from './scope.ts'
+import { maybeAutoSnapshot } from './snapshot.ts'
 import { MemoryRuntime } from './runtime.ts'
 import { MemoryError, type MemoryEntry, type MemoryTier } from './store.ts'
 import { canNarrowChildren, type SubagentConsolidator } from './subagent.ts'
@@ -218,6 +219,16 @@ export function apply(ctx: Context, rawConfig?: unknown): () => void {
 
   const homeResolution = resolveDshHome(safeGet)
   const runtime = new MemoryRuntime(config, homeResolution.home, () => projectDir)
+
+  // Slow-drift safety net: a daily snapshot when none exists today, a weekly
+  // when none exists this week. Runs at load, never blocks it: snapshot trouble
+  // is logged, not fatal.
+  try {
+    const created = maybeAutoSnapshot(runtime)
+    for (const meta of created) log(`snapshot ${meta.id} (${meta.kind}) created at load`)
+  } catch (error) {
+    warn(`snapshot maintenance at load failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
 
   const turns = new Map<string, TurnState>()
   let disposed = false
