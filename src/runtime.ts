@@ -516,6 +516,11 @@ export class MemoryRuntime {
     return this.store(tier).list(query)
   }
 
+  /** The directory one tier's store lives in. Creation is not implied. */
+  tierDir(tier: MemoryTier): string {
+    return this.#location(tier).dir
+  }
+
   /** Diagnose where each tier lives, for `memory_status` and for logs. */
   describe(): { tier: MemoryTier; file: string; dir: string; entries: number; revision: number; readable: boolean }[] {
     return this.enabledTiers().map((tier) => {
