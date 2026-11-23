@@ -41,7 +41,7 @@ export declare const STORE_FORMAT = 2;
 /** The oldest format this build still reads. */
 export declare const MIN_READ_FORMAT = 1;
 /** Which tier a store belongs to. */
-export declare type MemoryTier = 'user' | 'project';
+export type MemoryTier = 'user' | 'project';
 /**
  * Which layer of the system a memory belongs to.
  *
@@ -50,15 +50,15 @@ export declare type MemoryTier = 'user' | 'project';
  * persisted — writing one would let a transient convention pollute the
  * conflict view forever.
  */
-export declare type MemoryScope = 'session' | 'project' | 'personal-topic' | 'personal-global' | 'imported';
+export type MemoryScope = 'session' | 'project' | 'personal-topic' | 'personal-global' | 'imported';
 /** Which scopes a tier's store may hold. Anything else is a scope violation. */
 export declare const TIER_SCOPES: Readonly<Record<MemoryTier, readonly MemoryScope[]>>;
 /** Lifecycle state of one card. */
-export declare type MemoryStatus = 'active' | 'superseded' | 'archived' | 'disputed';
+export type MemoryStatus = 'active' | 'superseded' | 'archived' | 'disputed';
 /** How trustworthy the card's value is, independent of where it came from. */
-export declare type MemoryConfidence = 'user-confirmed' | 'high' | 'medium' | 'low';
+export type MemoryConfidence = 'user-confirmed' | 'high' | 'medium' | 'low';
 /** Where the card's information originated. */
-export declare type MemorySource = 'user' | 'assistant' | 'dream' | 'import';
+export type MemorySource = 'user' | 'assistant' | 'dream' | 'import';
 /** One curated memory entry — a card with a household registration, not just text. */
 export interface MemoryEntry {
     /** Short stable id, derived from the text so re-adding the same fact is a no-op. */
