@@ -221,7 +221,10 @@ test('apply registers the memory tools and the prompt section', async () => {
   const started = await start(handle)
   try {
     assert.equal(plugin.name, 'memory')
-    assert.deepEqual(handle.registered.map(tool => tool.name).sort(), [...MEMORY_TOOL_NAMES].sort())
+    // The consolidator child is filtered to MEMORY_TOOL_NAMES (fact curation
+    // only); the session gets those plus the arbitration/export/restore tools.
+    const TOOL_SURFACE = [...MEMORY_TOOL_NAMES, 'memory_conflicts', 'memory_arbitrate', 'memory_snapshot', 'memory_restore', 'memory_export']
+    assert.deepEqual(handle.registered.map(tool => tool.name).sort(), [...TOOL_SURFACE].sort())
     assert.equal(handle.sections.length, 1)
     assert.equal(handle.sections[0]!.name, 'memory')
   } finally { started.restore(); started.dispose(); handle.cleanup() }
