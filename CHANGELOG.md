@@ -2,6 +2,37 @@
 
 Notable changes to `deepseek-memory`. Versions follow [semver](https://semver.org/).
 
+## 1.0.2
+
+Security review follow-ups: the child consolidation mutation budget is now
+actually enforced, snapshot restore validates every entry before applying,
+export destinations and redaction are tightened, and `pnpm run check` is green
+again. No format or tool-surface changes.
+
+**Fixed**
+
+- `memory_add` / `memory_update` / `memory_delete` now call `gateMutation()`
+  before touching the store, so one child consolidation run can no longer
+  rewrite the whole library past its per-run budget.
+- `tests/prompt.test.ts` fixture updated for the v2 household-registration
+  entry fields; `typecheck` no longer fails on a fresh clone.
+
+**Security**
+
+- `loadSnapshot()` runs every tier file through the same per-entry
+  normalization and bounds as `MemoryStore.load`; a hand-edited or shared
+  snapshot can no longer bypass scope/length/entry ceilings at restore time.
+- `memory_export` only writes into an existing, non-symlink directory outside
+  the default export root; `verifyExport` validates the manifest defensively
+  and bounds its directory walk.
+- Export redaction now covers `subject`/`key`/`tags`, not just card text.
+
+**Housekeeping**
+
+- Home resolution uses win32 path semantics; the home tests pass on any host.
+- Build config disables sourcemaps so the committed `lib/` matches a fresh
+  build exactly; scripts consistently use `pnpm run`.
+
 ## 1.0.1
 
 Version metadata catches up with the release tags: `package.json` now reports
