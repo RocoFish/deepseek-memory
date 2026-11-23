@@ -2,7 +2,13 @@
 
 Notable changes to `deepseek-memory`. Versions follow [semver](https://semver.org/).
 
-## Unreleased
+## 1.0.1
+
+Version metadata catches up with the release tags: `package.json` now reports
+the published version, and the sections below are stamped with the versions
+they shipped in. No behavior change.
+
+## 1.0.0
 
 Household-registration stage 1: every durable memory now carries a household
 record, and the resolver can show which card is in force without deleting the
