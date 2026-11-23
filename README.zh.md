@@ -37,7 +37,7 @@
 | 部件 | 行为 |
 | --- | --- |
 | **两层记忆** | `user`（`$DSH_HOME/memory/`）记“这个人是谁”；`project`（`<cwd>/.dsh-memory/`）记这个仓库的约定与决策。 |
-| **工具** | `memory_add`、`memory_update`、`memory_delete`、`memory_list`、`memory_search`、`memory_status`。 |
+| **工具** | `memory_add`、`memory_update`、`memory_delete`、`memory_list`、`memory_search`、`memory_status`。`memory_add` 新增可选 `subject`；`memory_list` 显示每张卡的户籍与状态；`memory_status` 报告作用域越界，但不替你处理。 |
 | **注入** | 一个 `systemPrompt` 区段，其 `text` 是**每次装配时求值的 provider**。不往会话历史里写任何东西。 |
 | **轮末整理** | 由一个**受限 child agent** 只通过记忆工具审阅刚结束的那一轮。 |
 | **明文存储** | 库是可读 JSON，可手改、可 git diff；每次改动保留上一版。 |
@@ -221,14 +221,21 @@ subagent 的部署也能整理。
 
 ```json
 {
-  "format": 1,
+  "format": 2,
   "tier": "project",
   "revision": 3,
   "updatedAt": 1790000000000,
   "entries": [
     {
       "id": "m1a2b3c4",
+      "scope": "project",
+      "subject": "project",
+      "key": "m1a2b3c4",
       "text": "构建用 tsc，不用打包器。",
+      "status": "active",
+      "confidence": "high",
+      "source": "assistant",
+      "supersedes": [],
       "tags": ["build"],
       "createdAt": 1789990000000,
       "updatedAt": 1790000000000,
@@ -238,8 +245,28 @@ subagent 的部署也能整理。
 }
 ```
 
+格式 2 在条目文本之上给每张卡一份**户籍登记**：
+
+- `scope`——卡所属层级：`session > project > personal-topic > personal-global >
+  imported`。`session` 只存在于类型系统（裁决时压倒一切，但永不落盘）；`imported`
+  卡在用户确认转入正式 scope 之前，永远不影响回答。
+- `subject` / `key`——卡是关于什么的、回答哪个决策点。冲突按 `(subject, key)` 分组
+  裁决。
+- `status`——`active`、`superseded`、`archived` 或 `disputed`。
+- `confidence`——`user-confirmed`、`high`、`medium` 或 `low`。
+- `source`——`user`、`assistant`、`dream` 或 `import`。
+- `supersedes`——本卡取代的那些卡的 id，每次裁决都可回放。
+
+当两张卡回答同一个 `(subject, key)` 时，注入视图只显示胜者——按 scope 层级、再按
+confidence、再按新旧裁决——败者以 **shadowed** 身份留在库里，**绝不删除**。每层还有
+写入时强制的作用域辖权：项目层只存 `project` 卡，用户层只存 `personal-*` 卡。发现
+辖权之外的卡时，`memory_status` 会把它作为 scope violation 报出来，交给你裁决——
+系统只建议，绝不静默改写。`maxEntries` 只计 `active` 与 `disputed` 活卡；被取代和
+归档的卡保留备查，不占额度。
+
 `id` 由文本派生，所以同一个事实重复添加是幂等的，改写也保留身份。`format` 比当前
-构建新的文件会被**拒绝**而不是猜着读。
+构建新的文件会被**拒绝**而不是猜着读。格式 1 的文件在加载时自动迁移（每条目按层的
+默认值补登户籍），下一次提交时落盘为格式 2。
 
 项目层是给**用户在自己的仓库里**提交用的；不想共享就往项目的 `.gitignore` 里加
 `.dsh-memory/`。
@@ -404,8 +431,11 @@ ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/schemastery'
   `refresh()` 之前仍然不可见。
 - **闸门是文本启发式。** 它只看用户与助手的文本，判断不了一轮是否**重要**，只能判断
   它是否**听起来**留下了可沉淀的东西。
-- **不做近似去重。** 同一个事实的两种不同措辞算两条，靠整理器去合并。
+- **不自动合并近似条目。** 同一事实的两种措辞在盘上仍是两条。当它们回答同一个
+  `(subject, key)` 时，冲突裁决会在注入视图里 shadow 掉其余卡——但合并或删除
+  仍由你通过 `memory_update` / `memory_delete` 完成。
 - **`maxEntries` 是每层上限，不是全局上限**，所以两层都开时最多可存两倍的条目数。
+  （只计 `active` 与 `disputed` 活卡；被取代和归档的卡不占额度。）
 - **child 只能写记忆，所以它得出的其他结论会被丢弃。** 这是有意为之，但也意味着“需要
   先读某个文件才能判断”的整理不在范围内。
 

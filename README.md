@@ -32,7 +32,7 @@ With deepseek-memory, day 5 looks different:
 | Day | You say | The AI does |
 | --- | --- | --- |
 | 1 | "I use pnpm, not npm." | `memory_add`: "User uses pnpm." |
-| 5 | *(nothing)* | still uses pnpm ✅ — the store is injected into every request |
+| 5 | *(nothing)* | still uses pnpm ✅ — the store is injected into every session |
 
 State a fact once; it is injected into every later session. No repeated
 instructions, no "as I said before".
@@ -42,7 +42,7 @@ instructions, no "as I said before".
 | Piece | Behaviour |
 | --- | --- |
 | **Two tiers** | `user` (`$DSH_HOME/memory/`) for who the person is; `project` (`<cwd>/.dsh-memory/`) for this repository's conventions and decisions. |
-| **Tools** | `memory_add`, `memory_update`, `memory_delete`, `memory_list`, `memory_search`, `memory_status`. |
+| **Tools** | `memory_add`, `memory_update`, `memory_delete`, `memory_list`, `memory_search`, `memory_status`. `memory_add` takes an optional `subject`; `memory_list` shows each card's registration and status; `memory_status` reports scope violations without acting on them. |
 | **Injection** | A `systemPrompt` section whose text is a *provider*, so it is recomputed at every assembly. Nothing is written into session history. |
 | **After-turn consolidation** | A restricted child agent reviews the closed turn through the memory tools alone. |
 | **Plain files** | The store is readable JSON, hand-editable, diffable in git, and every mutation keeps the previous revision. |
@@ -269,14 +269,21 @@ The guarantees that hold on `main`:
 
 ```json
 {
-  "format": 1,
+  "format": 2,
   "tier": "project",
   "revision": 3,
   "updatedAt": 1790000000000,
   "entries": [
     {
       "id": "m1a2b3c4",
+      "scope": "project",
+      "subject": "project",
+      "key": "m1a2b3c4",
       "text": "The build uses tsc, not a bundler.",
+      "status": "active",
+      "confidence": "high",
+      "source": "assistant",
+      "supersedes": [],
       "tags": ["build"],
       "createdAt": 1789990000000,
       "updatedAt": 1790000000000,
@@ -286,9 +293,35 @@ The guarantees that hold on `main`:
 }
 ```
 
+Format 2 gives every card a *household registration* on top of its text:
+
+- `scope` — which layer the card belongs to: `session > project > personal-topic >
+  personal-global > imported`. `session` exists in the type system only (it
+  outranks everything during resolution but is never persisted); `imported` cards
+  never affect an answer until the user confirms them into a real scope.
+- `subject` / `key` — what the card is about and the decision point it answers.
+  Cards are grouped by `(subject, key)` for conflict resolution.
+- `status` — `active`, `superseded`, `archived`, or `disputed`.
+- `confidence` — `user-confirmed`, `high`, `medium`, or `low`.
+- `source` — `user`, `assistant`, `dream`, or `import`.
+- `supersedes` — ids of the cards this one superseded, so every arbitration stays
+  replayable.
+
+When two cards answer the same `(subject, key)`, the injected view shows only the
+winner — decided by scope rank, then confidence, then recency — and the losers stay
+in the store **shadowed**, never deleted. Each tier also has a scope remit it
+enforces on write: the project tier holds only `project` cards, the user tier only
+`personal-*` cards. A card found outside its remit is reported by `memory_status`
+as a scope violation and flagged for you to arbitrate — the system suggests, it
+does not silently rewrite. Only `active` and `disputed` cards count toward
+`maxEntries`; superseded and archived cards are kept for replay without consuming
+the budget.
+
 The id is derived from the entry text, so adding the same fact twice is a no-op and
 a rewritten entry keeps its identity. A file whose `format` is newer than the
-running build is refused rather than guessed at.
+running build is refused rather than guessed at. Format 1 files are migrated on
+load (each entry gains its registration from the tier's defaults) and are
+persisted as format 2 on the next commit.
 
 The project tier is meant to be committed by the *user* in *their* repository, so
 `.dsh-memory/` is a sensible addition to a project's `.gitignore` if they would
@@ -487,10 +520,14 @@ hook and no SDK on the module graph.
   edits that do not bump `revision` are still invisible until a `refresh()`.
 - **The gate is a heuristic over text.** It reads user and assistant text only; it
   cannot see whether a turn was *important*, just whether it *sounded* durable.
-- **No dedup against near-identical entries.** Two differently-worded versions of
-  the same fact are two entries; the consolidator is expected to merge them.
+- **No automatic merge of near-identical entries.** Two differently-worded versions
+  of the same fact are two entries, and they stay two entries on disk. When they
+  answer the same `(subject, key)`, conflict resolution shadows all but one in the
+  injected view — but merging or deleting the leftovers is left to you, through
+  `memory_update` / `memory_delete`.
 - **`maxEntries` is per tier, not global**, so a deployment with both tiers enabled
-  can hold twice the configured number of entries.
+  can hold twice the configured number of entries. (Only `active` and `disputed`
+  cards count; superseded and archived cards do not consume the budget.)
 - **The child can only write memory, so anything else it concludes is discarded.**
   That is intentional, but it means a consolidation that needs to inspect a file to
   decide is simply out of scope.
