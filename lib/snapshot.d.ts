@@ -5,7 +5,7 @@ export declare const SNAPSHOT_DIR = "snapshots";
 /** Current snapshot file format. */
 export declare const SNAPSHOT_FORMAT = 1;
 /** Why a snapshot exists. */
-export type SnapshotKind = 'pre-op' | 'pre-restore' | 'daily' | 'weekly' | 'manual';
+export declare type SnapshotKind = 'pre-op' | 'pre-restore' | 'daily' | 'weekly' | 'manual';
 /**
  * How many snapshots of each kind are kept; oldest first out. `manual` keeps
  * everything — an explicit human request is not pruned by policy.

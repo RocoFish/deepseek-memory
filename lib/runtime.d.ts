@@ -104,6 +104,8 @@ export declare class MemoryRuntime {
     commit(tier: MemoryTier, expected?: MemoryStore): CommitResult | undefined;
     /** Convenience: the entry list a tool should show for one tier. */
     list(tier: MemoryTier, query?: string): MemoryEntry[];
+    /** The directory one tier's store lives in. Creation is not implied. */
+    tierDir(tier: MemoryTier): string;
     /** Diagnose where each tier lives, for `memory_status` and for logs. */
     describe(): {
         tier: MemoryTier;

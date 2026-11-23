@@ -41,7 +41,7 @@ export declare const STORE_FORMAT = 2;
 /** The oldest format this build still reads. */
 export declare const MIN_READ_FORMAT = 1;
 /** Which tier a store belongs to. */
-export type MemoryTier = 'user' | 'project';
+export declare type MemoryTier = 'user' | 'project';
 /**
  * Which layer of the system a memory belongs to.
  *
@@ -50,15 +50,15 @@ export type MemoryTier = 'user' | 'project';
  * persisted — writing one would let a transient convention pollute the
  * conflict view forever.
  */
-export type MemoryScope = 'session' | 'project' | 'personal-topic' | 'personal-global' | 'imported';
+export declare type MemoryScope = 'session' | 'project' | 'personal-topic' | 'personal-global' | 'imported';
 /** Which scopes a tier's store may hold. Anything else is a scope violation. */
 export declare const TIER_SCOPES: Readonly<Record<MemoryTier, readonly MemoryScope[]>>;
 /** Lifecycle state of one card. */
-export type MemoryStatus = 'active' | 'superseded' | 'archived' | 'disputed';
+export declare type MemoryStatus = 'active' | 'superseded' | 'archived' | 'disputed';
 /** How trustworthy the card's value is, independent of where it came from. */
-export type MemoryConfidence = 'user-confirmed' | 'high' | 'medium' | 'low';
+export declare type MemoryConfidence = 'user-confirmed' | 'high' | 'medium' | 'low';
 /** Where the card's information originated. */
-export type MemorySource = 'user' | 'assistant' | 'dream' | 'import';
+export declare type MemorySource = 'user' | 'assistant' | 'dream' | 'import';
 /** One curated memory entry — a card with a household registration, not just text. */
 export interface MemoryEntry {
     /** Short stable id, derived from the text so re-adding the same fact is a no-op. */
@@ -183,12 +183,12 @@ export declare class MemoryStore {
      * Load a parsed store file.
      *
      * Formats from {@link MIN_READ_FORMAT} through {@link STORE_FORMAT} are read;
-     * older files are migrated in memory (v1 entries gain their household
-     * registration from defaults, see {@link migrateV1Entry}) and are persisted
-     * as the current format on the next commit. A file written by a *newer*
-     * format is refused instead of guessed at, because silently dropping fields
-     * the running build does not know about is how a memory store loses data
-     * without anyone noticing.
+     *     * older files are migrated in memory (v1 entries gain their household
+     *     * registration from defaults, see {@link migrateV1Entry}) and are persisted
+     *     * as the current format on the next commit. A file written by a *newer*
+     *     * format is refused instead of guessed at, because silently dropping fields
+     *     * the running build does not know about is how a memory store loses data
+     *     * without anyone noticing.
      * @param raw - parsed JSON, however malformed.
      * @param source - where it came from, for diagnostics.
      */
