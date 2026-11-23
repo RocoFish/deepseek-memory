@@ -116,7 +116,7 @@ export declare class MemoryError extends Error {
  */
 export declare function normalizeEntryText(value: string): string;
 /** Unicode code-point length, so the cap means the same thing for CJK and Latin. */
-export declare function codePointLength(value: string): string | number;
+export declare function codePointLength(value: string): number;
 /**
  * Map a format-1 entry onto format-2 defaults.
  *
