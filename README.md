@@ -42,7 +42,7 @@ instructions, no "as I said before".
 | Piece | Behaviour |
 | --- | --- |
 | **Two tiers** | `user` (`$DSH_HOME/memory/`) for who the person is; `project` (`<cwd>/.dsh-memory/`) for this repository's conventions and decisions. |
-| **Tools** | `memory_add`, `memory_update`, `memory_delete`, `memory_list`, `memory_search`, `memory_status`. `memory_add` takes an optional `subject`; `memory_list` shows each card's registration and status; `memory_status` reports scope violations without acting on them. |
+| **Tools** | `memory_add`, `memory_update`, `memory_delete`, `memory_list`, `memory_search`, `memory_status`, plus `memory_conflicts`, `memory_arbitrate`, `memory_snapshot`, `memory_restore`, `memory_export` for ruling on conflicts, rolling back, and taking the library with you. `memory_add` takes an optional `subject`; `memory_list` shows each card's registration and status; `memory_status` reports scope violations without acting on them. |
 | **Injection** | A `systemPrompt` section whose text is a *provider*, so it is recomputed at every assembly. Nothing is written into session history. |
 | **After-turn consolidation** | A restricted child agent reviews the closed turn through the memory tools alone. |
 | **Plain files** | The store is readable JSON, hand-editable, diffable in git, and every mutation keeps the previous revision. |
@@ -327,6 +327,43 @@ The project tier is meant to be committed by the *user* in *their* repository, s
 `.dsh-memory/` is a sensible addition to a project's `.gitignore` if they would
 rather not share it.
 
+## Arbitration, export, and snapshots
+
+Household registration makes conflicts visible; these tools let a human rule on
+them, take the library elsewhere, and roll back safely. The system reports and
+suggests — it never silently rewrites a card, and no ruling deletes one.
+
+- `memory_conflicts` — the read-only arbitration console. It groups every card
+  by `(subject, key)` across both tiers, shows which value is in force and
+  *why* (scope, confidence, or recency, measured against the strongest losing
+  card), what it shadowed, and what needs a human: disputed groups, cards
+  sitting outside their tier's scope remit, unclaimed imported cards, and
+  weakly supported in-force cards. It changes nothing.
+- `memory_arbitrate` — the four confirmed rulings. `adopt` promotes one card:
+  it becomes `user-confirmed`, its live competitors become `superseded` (kept,
+  never deleted), and the winner records their ids in `supersedes`, so the
+  decision replays later. `merge` folds several cards into one new card.
+  `mark-wrong` archives a card, keeping it for replay. `confirm-import` moves
+  an imported card into a real scope, across tiers when needed. Every action
+  snapshots the whole library first.
+- `memory_snapshot` / `memory_restore` — named, restorable points-in-time of
+  the whole library. Snapshots capture on-disk truth and live in the user tier
+  (`$DSH_HOME/memory/snapshots/`), never inside the project repository.
+  Retention keeps the newest pre-op x20, daily x7, weekly x4, and pre-restore
+  x10; the first session of a day or week writes its snapshot automatically.
+  Restore is preview-first: the diff sorts every change into `added`, `removed`,
+  `modified`, or `conflicts` — a conflict being a card the current side edited
+  *after* the snapshot was taken — and apply writes only the explicitly
+  confirmed selections, backing the current library up as `pre-restore` before
+  anything lands.
+- `memory_export` — take the library with you. One Markdown file per card with
+  YAML frontmatter plus an `INDEX.md` a human can open cold (`markdown`); a
+  one-card-per-line JSONL stream for diffing and machine recovery (`jsonl`); or
+  the full bundle zipped (`zip`). `MANIFEST.json` signs every file with
+  SHA-256; credential-shaped strings — tokens, PATs, private keys — are masked
+  and counted by kind rather than exported raw; and `format: "verify"`
+  re-checks an export later, naming any missing or tampered file.
+
 ## Design notes
 
 Four constraints shaped this implementation and are worth knowing before changing
@@ -492,7 +529,7 @@ zero bare specifiers in any `lib/*.js`, statically **or** dynamically, so this c
 regress silently.
 
 That last file is also why the plugin is verified working: with `defineTool` local,
-`createMemoryTools()` returns all six tools in a plain process with no resolution
+`createMemoryTools()` returns all eleven tools in a plain process with no resolution
 hook and no SDK on the module graph.
 
 ## FAQ
@@ -524,7 +561,8 @@ hook and no SDK on the module graph.
   of the same fact are two entries, and they stay two entries on disk. When they
   answer the same `(subject, key)`, conflict resolution shadows all but one in the
   injected view — but merging or deleting the leftovers is left to you, through
-  `memory_update` / `memory_delete`.
+  the arbitration console: `memory_conflicts` to see the groups, `memory_arbitrate`
+  to rule on them.
 - **`maxEntries` is per tier, not global**, so a deployment with both tiers enabled
   can hold twice the configured number of entries. (Only `active` and `disputed`
   cards count; superseded and archived cards do not consume the budget.)
