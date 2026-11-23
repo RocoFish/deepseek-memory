@@ -44,8 +44,9 @@ import { resolveConfig, type MemoryConfig } from './config.ts'
 import { consolidateTurn, type TurnCapture } from './consolidate.ts'
 import { createMemoryUserMessage } from './message.ts'
 import { MEMORY_SECTION, MEMORY_SECTION_ORDER, renderMemory, type TierView } from './prompt.ts'
+import { resolveEffective } from './scope.ts'
 import { MemoryRuntime } from './runtime.ts'
-import { MemoryError, type MemoryTier } from './store.ts'
+import { MemoryError, type MemoryEntry, type MemoryTier } from './store.ts'
 import { canNarrowChildren, type SubagentConsolidator } from './subagent.ts'
 import { createMemoryTools } from './tools.ts'
 
@@ -245,10 +246,20 @@ export function apply(ctx: Context, rawConfig?: unknown): () => void {
       text: () => {
         if (disposed) return ''
         try {
-          const views: TierView[] = runtime.stores().map(({ tier, store }) => ({
+          const stores = runtime.stores()
+          // Resolve scope precedence before rendering: when the same (subject,
+          // key) exists in several layers, the project value wins and the
+          // shadowed copies are not injected as if they were separate facts.
+          // Imported cards never reach the prompt. The shadowed cards stay in
+          // the stores untouched — this filters the view, it does not arbitrate.
+          const shadowed = new Set(
+            resolveEffective(stores.flatMap(({ store }) => store.entries()))
+              .groups.flatMap(group => group.shadowed.map(entry => entry.id)),
+          )
+          const views: TierView[] = stores.map(({ tier, store }) => ({
             tier,
             label: TIER_LABELS[tier],
-            entries: store.entries(),
+            entries: store.entries().filter((entry: MemoryEntry) => !shadowed.has(entry.id)),
           }))
           return renderMemory(views, config.injectChars).text
         } catch (error) {

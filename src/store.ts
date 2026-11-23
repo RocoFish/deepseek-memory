@@ -33,18 +33,68 @@ export const MAX_TAGS_PER_ENTRY = 32
 /** Hard ceiling on one tag's length, in Unicode code points. */
 export const MAX_TAG_CHARS = 64
 
-/** Current on-disk format. A newer file is refused rather than misread. */
-export const STORE_FORMAT = 1
+/**
+ * Current on-disk format. A newer file is refused rather than misread.
+ *
+ * v2 adds the household-registration fields (`scope`, `subject`, `key`,
+ * `status`, `confidence`, `source`, `supersedes`) that conflict detection and
+ * the arbitration view are built on. Format 1 files are migrated on load:
+ * the v1 fields map deterministically onto v2 defaults, and the migrated
+ * state is persisted as v2 on the next commit.
+ */
+export const STORE_FORMAT = 2
+
+/** The oldest format this build still reads. */
+export const MIN_READ_FORMAT = 1
 
 /** Which tier a store belongs to. */
 export type MemoryTier = 'user' | 'project'
 
-/** One curated memory entry. */
+/**
+ * Which layer of the system a memory belongs to.
+ *
+ * `session` exists in the type system because session-scoped values outrank
+ * every persisted card during resolution, but session values are never
+ * persisted — writing one would let a transient convention pollute the
+ * conflict view forever.
+ */
+export type MemoryScope = 'session' | 'project' | 'personal-topic' | 'personal-global' | 'imported'
+
+/** Which scopes a tier's store may hold. Anything else is a scope violation. */
+export const TIER_SCOPES: Readonly<Record<MemoryTier, readonly MemoryScope[]>> = {
+  project: ['project'],
+  user: ['personal-global', 'personal-topic'],
+}
+
+/** Lifecycle state of one card. */
+export type MemoryStatus = 'active' | 'superseded' | 'archived' | 'disputed'
+
+/** How trustworthy the card's value is, independent of where it came from. */
+export type MemoryConfidence = 'user-confirmed' | 'high' | 'medium' | 'low'
+
+/** Where the card's information originated. */
+export type MemorySource = 'user' | 'assistant' | 'dream' | 'import'
+
+/** One curated memory entry — a card with a household registration, not just text. */
 export interface MemoryEntry {
   /** Short stable id, derived from the text so re-adding the same fact is a no-op. */
   readonly id: string
+  /** Which layer this card belongs to; derived from the tier unless set explicitly. */
+  readonly scope: MemoryScope
+  /** What the card is about, e.g. 'deepseek-memory', 'math-modeling', 'preference'. */
+  readonly subject: string
+  /** The normalized decision point the card answers, e.g. 'assistant-name'. Defaults to the id. */
+  readonly key: string
   /** The remembered fact, one self-contained sentence or two. */
   readonly text: string
+  /** Lifecycle state. Injection reads active/disputed; superseded and archived are kept for replay. */
+  readonly status: MemoryStatus
+  /** Trust level, separate from source: a user statement can still be stale, an inference can still be right. */
+  readonly confidence: MemoryConfidence
+  /** Where the information came from. */
+  readonly source: MemorySource
+  /** Ids of cards this one superseded; kept so every arbitration stays replayable. */
+  readonly supersedes: readonly string[]
   /** Free-form labels for the injector's section ordering and manual browsing. */
   readonly tags: readonly string[]
   /** Creation time, epoch milliseconds. */
@@ -101,6 +151,78 @@ export function normalizeEntryText(value: string): string {
 /** Unicode code-point length, so the cap means the same thing for CJK and Latin. */
 export function codePointLength(value: string): number {
   return [...value].length
+}
+
+/** Normalize one scope value, refusing anything outside the closed union. */
+function normalizeScope(value: unknown, fallback: MemoryScope): MemoryScope {
+  return value === 'session' || value === 'project' || value === 'personal-topic'
+    || value === 'personal-global' || value === 'imported'
+    ? value
+    : fallback
+}
+
+/** Normalize a subject/key string: trim, non-empty, bounded. */
+function normalizeLabel(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback
+  const trimmed = value.trim()
+  if (trimmed === '') return fallback
+  return codePointLength(trimmed) > MAX_TAG_CHARS ? trimmed.slice(0, MAX_TAG_CHARS) : trimmed
+}
+
+/** Normalize one status value. */
+function normalizeStatus(value: unknown): MemoryStatus {
+  return value === 'superseded' || value === 'archived' || value === 'disputed' ? value : 'active'
+}
+
+/** Normalize one confidence value. */
+function normalizeConfidence(value: unknown): MemoryConfidence {
+  return value === 'user-confirmed' || value === 'medium' || value === 'low' ? value : 'high'
+}
+
+/** Normalize one source value. */
+function normalizeSource(value: unknown, origin: MemoryEntry['origin']): MemorySource {
+  if (value === 'user' || value === 'assistant' || value === 'dream' || value === 'import') return value
+  return origin === 'user' ? 'user' : 'assistant'
+}
+
+/**
+ * Map a format-1 entry onto format-2 defaults.
+ *
+ * v1 carried no household registration, so the tier supplies it: a project-tier
+ * entry becomes a `project`-scoped card about 'project', a user-tier entry a
+ * `personal-global` card about 'preference'. Historical entries default to
+ * `high` confidence rather than `user-confirmed`: they have been acted on in
+ * real sessions, which is weaker evidence than an explicit confirmation and
+ * stronger than a fresh inference — and it leaves room for the user to promote
+ * them later through the arbitration view.
+ */
+export function migrateV1Entry(entry: {
+  id?: unknown
+  text: string
+  tags: string[]
+  createdAt: number
+  updatedAt: number
+  origin: 'user' | 'consolidator'
+  sourceSession?: string
+}, tier: MemoryTier): MemoryEntry {
+  const scope: MemoryScope = tier === 'project' ? 'project' : 'personal-global'
+  const id = typeof entry.id === 'string' && entry.id !== '' ? entry.id : entryId(entry.text)
+  return {
+    id,
+    scope,
+    subject: scope === 'project' ? 'project' : 'preference',
+    key: id,
+    text: entry.text,
+    status: 'active',
+    confidence: 'high',
+    source: normalizeSource(undefined, entry.origin),
+    supersedes: [],
+    tags: entry.tags,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    origin: entry.origin,
+    ...(entry.sourceSession === undefined ? {} : { sourceSession: entry.sourceSession }),
+  }
 }
 
 /**
@@ -229,9 +351,13 @@ export class MemoryStore {
   /**
    * Load a parsed store file.
    *
-   * A file written by a newer format is refused instead of guessed at, because
-   * silently dropping fields the running build does not know about is how a
-   * memory store loses data without anyone noticing.
+   * Formats from {@link MIN_READ_FORMAT} through {@link STORE_FORMAT} are read;
+   * older files are migrated in memory (v1 entries gain their household
+   * registration from defaults, see {@link migrateV1Entry}) and are persisted
+   * as the current format on the next commit. A file written by a *newer*
+   * format is refused instead of guessed at, because silently dropping fields
+   * the running build does not know about is how a memory store loses data
+   * without anyone noticing.
    * @param raw - parsed JSON, however malformed.
    * @param source - where it came from, for diagnostics.
    */
@@ -240,9 +366,9 @@ export class MemoryStore {
       throw new MemoryError(`memory store at ${source} is not an object`, 'MEMORY_STORE_MALFORMED')
     }
     const file = raw as Partial<StoreFile>
-    if (file.format !== STORE_FORMAT) {
+    if (typeof file.format !== 'number' || file.format < MIN_READ_FORMAT || file.format > STORE_FORMAT) {
       throw new MemoryError(
-        `memory store at ${source} uses format ${String(file.format)} but this build reads format ${STORE_FORMAT}`,
+        `memory store at ${source} uses format ${String(file.format)} but this build reads formats ${MIN_READ_FORMAT} through ${STORE_FORMAT}`,
         'MEMORY_STORE_FORMAT',
       )
     }
@@ -269,19 +395,46 @@ export class MemoryStore {
         )
       }
       const tags = validateTags(Array.isArray(entry.tags) ? entry.tags.filter(tag => typeof tag === 'string') : [], source)
+      const origin: MemoryEntry['origin'] = entry.origin === 'user' ? 'user' : 'consolidator'
+      if (file.format === 1) {
+        loaded.push(migrateV1Entry({
+          id: entry.id,
+          text,
+          tags,
+          createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
+          updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : 0,
+          origin,
+          ...(typeof entry.sourceSession === 'string' ? { sourceSession: entry.sourceSession } : {}),
+        }, this.tier))
+        continue
+      }
+      const scope = normalizeScope(entry.scope, this.tier === 'project' ? 'project' : 'personal-global')
+      const id = typeof entry.id === 'string' && entry.id !== '' ? entry.id : entryId(text)
       loaded.push({
-        id: typeof entry.id === 'string' && entry.id !== '' ? entry.id : entryId(text),
+        id,
+        scope,
+        subject: normalizeLabel(entry.subject, scope === 'project' ? 'project' : scope === 'personal-global' ? 'preference' : 'general'),
+        key: normalizeLabel(entry.key, id),
         text,
+        status: normalizeStatus(entry.status),
+        confidence: normalizeConfidence(entry.confidence),
+        source: normalizeSource(entry.source, origin),
+        supersedes: Array.isArray(entry.supersedes)
+          ? entry.supersedes.filter((item): item is string => typeof item === 'string')
+          : [],
         tags,
         createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
         updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : 0,
-        origin: entry.origin === 'user' ? 'user' : 'consolidator',
+        origin,
         ...(typeof entry.sourceSession === 'string' ? { sourceSession: entry.sourceSession } : {}),
       })
     }
-    if (loaded.length > this.#limits.maxEntries) {
+    // The entry cap binds live cards only: superseded and archived cards are
+    // kept for replay and must not crowd out facts that are actually in force.
+    const liveCount = loaded.filter(entry => entry.status === 'active' || entry.status === 'disputed').length
+    if (liveCount > this.#limits.maxEntries) {
       throw new MemoryError(
-        `memory store at ${source} holds ${loaded.length} usable entries, above the configured maximum of ${this.#limits.maxEntries}. Remove some entries in the file and try again.`,
+        `memory store at ${source} holds ${liveCount} live entries, above the configured maximum of ${this.#limits.maxEntries}. Remove some entries in the file and try again.`,
         'MEMORY_STORE_MALFORMED',
       )
     }
@@ -322,26 +475,64 @@ export class MemoryStore {
 
   /**
    * Add one entry.
+   *
+   * The scope is validated against the tier: a project-tier store holds only
+   * `project` cards, a user-tier store only `personal-*` cards. `session` and
+   * `imported` are never writable here — session values are never persisted,
+   * and imported cards enter through the import flow, not through the model's
+   * add tool.
    * @returns the stored entry, plus whether it was newly created.
-   * @throws {MemoryError} when the text is invalid, duplicates an existing entry, or the store is full.
+   * @throws {MemoryError} when the text is invalid, duplicates an existing entry, the scope does not belong in this tier, or the store is full.
    */
-  add(input: { text: string; tags?: readonly string[]; origin: MemoryEntry['origin']; sourceSession?: string; now: number }): { entry: MemoryEntry; created: boolean } {
+  add(input: {
+    text: string
+    tags?: readonly string[]
+    origin: MemoryEntry['origin']
+    sourceSession?: string
+    now: number
+    scope?: Exclude<MemoryScope, 'session' | 'imported'>
+    subject?: string
+    key?: string
+    confidence?: MemoryConfidence
+    source?: MemorySource
+    supersedes?: readonly string[]
+  }): { entry: MemoryEntry; created: boolean } {
     const text = this.#validateText(input.text)
     const existing = this.#entries.find(entry => entry.id === entryId(text))
     if (existing !== undefined) return { entry: existing, created: false }
 
-    if (this.#entries.length >= this.#limits.maxEntries) {
+    const scope = input.scope ?? (this.tier === 'project' ? 'project' : 'personal-global')
+    if (!TIER_SCOPES[this.tier].includes(scope)) {
       throw new MemoryError(
-        `this memory tier already holds its maximum of ${this.#limits.maxEntries} entries. `
+        `scope "${scope}" does not belong in the ${this.tier} memory tier; this tier holds: ${TIER_SCOPES[this.tier].join(', ')}. `,
+        'MEMORY_SCOPE_VIOLATION',
+      )
+    }
+
+    // The cap binds live cards (active + disputed) only: superseded and
+    // archived cards stay on disk for replay and must not crowd out facts in
+    // force. `size` still reports every stored card.
+    const liveCount = this.#entries.filter(entry => entry.status === 'active' || entry.status === 'disputed').length
+    if (liveCount >= this.#limits.maxEntries) {
+      throw new MemoryError(
+        `this memory tier already holds its maximum of ${this.#limits.maxEntries} entries (counting live cards only; superseded and archived cards do not consume the budget). `
         + 'Replace an existing entry with memory_update, remove a stale one with memory_delete, '
         + 'or merge several related entries into one before adding.',
         'MEMORY_STORE_FULL',
       )
     }
 
+    const id = entryId(text)
     const entry: MemoryEntry = {
-      id: entryId(text),
+      id,
+      scope,
+      subject: normalizeLabel(input.subject, scope === 'project' ? 'project' : scope === 'personal-topic' ? 'general' : 'preference'),
+      key: normalizeLabel(input.key, id),
       text,
+      status: 'active',
+      confidence: input.confidence ?? (input.origin === 'user' ? 'user-confirmed' : 'medium'),
+      source: input.source ?? (input.origin === 'user' ? 'user' : 'assistant'),
+      supersedes: input.supersedes ?? [],
       tags: validateTags(input.tags ?? [], 'a new memory entry'),
       createdAt: input.now,
       updatedAt: input.now,

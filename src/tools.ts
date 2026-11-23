@@ -14,6 +14,7 @@
  */
 import type { InferArgs, ParameterSchemaSpec, ToolDefinition } from './define.ts'
 import { defineTool } from './define.ts'
+import { findScopeViolations } from './scope.ts'
 import type { MemoryEntry, MemoryTier } from './store.ts'
 import { MemoryError } from './store.ts'
 import type { MemoryRuntime } from './runtime.ts'
@@ -61,7 +62,9 @@ function resolveTier(runtime: MemoryRuntime, choice: string): MemoryTier {
 function formatEntry(entry: MemoryEntry): string {
   const tags = entry.tags.length > 0 ? ` [${entry.tags.join(', ')}]` : ''
   const origin = entry.origin === 'user' ? 'user' : 'consolidator'
-  return `${entry.id}${tags} (${origin}): ${entry.text}`
+  const registration = entry.scope === 'project' ? '' : ` <${entry.scope}:${entry.subject}>`
+  const status = entry.status === 'active' ? '' : ` (${entry.status})`
+  return `${entry.id}${tags} (${origin})${registration}${status}: ${entry.text}`
 }
 
 /** Render a list of entries, or an honest empty state. */
@@ -130,10 +133,10 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
         text: { type: 'string', required: true, description: 'One self-contained fact, at most a sentence or two.' },
         tier: TIER_PARAMETER,
         tags: { type: 'array', items: { type: 'string' }, description: 'Optional short labels, e.g. ["style","build"].' },
+        subject: { type: 'string', description: 'What this memory is about, e.g. "deepseek-memory" or "math-modeling". Default: "preference" for user memory, "project" for project memory.' },
       },
       output: textOutput(),
       async execute(args) {
-        runtime.gateMutation()
         const tier = resolveTier(runtime, args.tier ?? 'auto')
         const store = runtime.store(tier)
         const result = store.add({
@@ -141,6 +144,7 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
           tags: args.tags,
           origin: 'user',
           now: Date.now(),
+          ...(args.subject === undefined || args.subject.trim() === '' ? {} : { subject: args.subject.trim() }),
         })
         if (!result.created) {
           return `Already remembered as ${result.entry.id} in ${tier} memory; nothing changed.`
@@ -162,7 +166,6 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
       },
       output: textOutput(),
       async execute(args) {
-        runtime.gateMutation()
         const tier = resolveTier(runtime, args.tier ?? 'auto')
         const store = runtime.store(tier)
         const updated = store.update({
@@ -186,7 +189,6 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
       },
       output: textOutput(),
       async execute(args) {
-        runtime.gateMutation()
         const tier = resolveTier(runtime, args.tier ?? 'auto')
         const store = runtime.store(tier)
         const removed = store.remove(args.id, Date.now())
@@ -251,6 +253,17 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
         const lines = rows.length === 0
           ? ['No memory tier is enabled.']
           : rows.map(row => `${row.tier}: ${row.entries} entries, revision ${row.revision}, ${row.readable ? 'readable' : 'UNREADABLE'} at ${row.file}`)
+        // Surface scope violations without acting on them: a personal card in
+        // the project store or a project card in the user store is flagged for
+        // the user to arbitrate, never silently rewritten.
+        for (const tier of runtime.enabledTiers()) {
+          try {
+            const violations = findScopeViolations(runtime.store(tier).entries(), tier)
+            if (violations.length > 0) {
+              lines.push(`scope violations in ${tier}: ${violations.map(entry => entry.id).join(', ')} (cards that do not belong in this tier)`)
+            }
+          } catch { /* readability was already reported above */ }
+        }
 
         // Name the tiers that are OFF. An absent tier and an empty tier are
         // otherwise indistinguishable in this output, and which candidates were

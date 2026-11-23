@@ -11,6 +11,7 @@ import {
   STORE_FORMAT,
   codePointLength,
   entryId,
+  migrateV1Entry,
   normalizeEntryText,
 } from '../src/store.ts'
 
@@ -222,4 +223,123 @@ test('load skips unusable entries instead of failing the whole store', () => {
   }, 'test')
   assert.equal(store.size, 2)
   assert.equal(store.revision, 4)
+})
+
+test('format 1 files load and migrate to household-registered cards', () => {
+  const store = fresh()
+  store.load({
+    format: 1,
+    revision: 7,
+    entries: [
+      { id: 'old1', text: 'the project pins pnpm', tags: ['build'], createdAt: 1, updatedAt: 2, origin: 'user' },
+      { text: 'a consolidator note with no id', createdAt: 3, updatedAt: 4, origin: 'consolidator' },
+    ],
+  }, 'legacy.json')
+  assert.equal(store.size, 2)
+  assert.equal(store.revision, 7, 'revision survives migration')
+  const first = store.entries().find(entry => entry.id === 'old1')!
+  assert.equal(first.scope, 'project', 'project-tier v1 cards become project-scoped')
+  assert.equal(first.subject, 'project')
+  assert.equal(first.status, 'active')
+  assert.equal(first.confidence, 'high', 'history counts as used, not as confirmed')
+  assert.equal(first.source, 'user')
+  assert.deepEqual(first.supersedes, [])
+  const second = store.entries().find(entry => entry.text.startsWith('a consolidator note'))!
+  assert.equal(second.source, 'assistant', 'consolidator origin maps to assistant source')
+  // The migrated state round-trips as format 2.
+  const file = JSON.parse(JSON.stringify(store.toFile(8)))
+  assert.equal(file.format, STORE_FORMAT)
+  const restored = fresh()
+  restored.load(file, 'test')
+  assert.deepEqual(restored.entries().map(entry => entry.id).sort(), ['old1', second.id].sort())
+})
+
+test('user-tier v1 cards migrate to personal-global', () => {
+  const store = new MemoryStore('user', limits)
+  store.load({
+    format: 1,
+    entries: [{ id: 'u1', text: 'prefers concise answers', createdAt: 1, updatedAt: 1, origin: 'user' }],
+  }, 'user.json')
+  const entry = store.entries()[0]!
+  assert.equal(entry.scope, 'personal-global')
+  assert.equal(entry.subject, 'preference')
+})
+
+test('v2 fields normalize on load and bad scope falls back to the tier default', () => {
+  const store = fresh()
+  store.load({
+    format: STORE_FORMAT,
+    entries: [
+      {
+        id: 'x', text: 'a v2 card', origin: 'user',
+        scope: 'nonsense', subject: '  ', key: '', status: 'weird', confidence: 'odd', source: 'alien',
+        supersedes: ['a', 7, 'b'],
+      },
+    ],
+  }, 'test')
+  const entry = store.entries()[0]!
+  assert.equal(entry.scope, 'project')
+  assert.equal(entry.subject, 'project')
+  assert.equal(entry.key, 'x')
+  assert.equal(entry.status, 'active')
+  assert.equal(entry.confidence, 'high')
+  assert.equal(entry.source, 'user')
+  assert.deepEqual(entry.supersedes, ['a', 'b'], 'non-string supersedes entries are dropped')
+})
+
+test('add derives registration from the tier and rejects scopes that do not belong', () => {
+  const store = fresh()
+  const { entry } = store.add({ text: 'a repo convention', origin: 'user', now: 1 })
+  assert.equal(entry.scope, 'project')
+  assert.equal(entry.confidence, 'user-confirmed', 'model writes of user facts arrive confirmed')
+  assert.equal(entry.source, 'user')
+  assert.throws(
+    () => store.add({ text: 'a personal note', origin: 'user', now: 2, scope: 'personal-global' }),
+    (error: unknown) => error instanceof MemoryError && error.code === 'MEMORY_SCOPE_VIOLATION',
+  )
+  assert.throws(
+    () => store.add({ text: 'an imported claim', origin: 'user', now: 3, scope: 'imported' as never }),
+    (error: unknown) => error instanceof MemoryError && error.code === 'MEMORY_SCOPE_VIOLATION',
+  )
+  const userStore = new MemoryStore('user', limits)
+  const topic = userStore.add({ text: 'models in Python', origin: 'user', now: 1, scope: 'personal-topic', subject: 'math-modeling' })
+  assert.equal(topic.entry.subject, 'math-modeling')
+  assert.equal(topic.entry.scope, 'personal-topic')
+})
+
+test('superseded and archived cards do not count against the live-entry cap', () => {
+  const store = new MemoryStore('project', { maxEntries: 1, maxEntryChars: 100 })
+  store.load({
+    format: STORE_FORMAT,
+    entries: [
+      { id: 'live', text: 'the current fact', origin: 'user', status: 'active' },
+      { id: 'dead', text: 'the old fact', origin: 'user', status: 'superseded' },
+    ],
+  }, 'test')
+  assert.equal(store.size, 2)
+  // One live slot is taken; adding another live card must refuse...
+  assert.throws(
+    () => store.add({ text: 'one live fact too many', origin: 'user', now: 5 }),
+    (error: unknown) => error instanceof MemoryError && error.code === 'MEMORY_STORE_FULL',
+  )
+  // ...while a load-time store whose live count exceeds the cap is malformed.
+  const crowded = new MemoryStore('project', { maxEntries: 1, maxEntryChars: 100 })
+  assert.throws(
+    () => crowded.load({
+      format: STORE_FORMAT,
+      entries: [
+        { id: 'a', text: 'live fact one', origin: 'user', status: 'active' },
+        { id: 'b', text: 'live fact two', origin: 'user', status: 'disputed' },
+      ],
+    }, 'test'),
+    (error: unknown) => error instanceof MemoryError && error.code === 'MEMORY_STORE_MALFORMED',
+  )
+})
+
+test('migrateV1Entry keeps the id so dedup history survives', () => {
+  const migrated = migrateV1Entry({ id: 'kept', text: 'a fact', tags: [], createdAt: 1, updatedAt: 2, origin: 'consolidator' }, 'user')
+  assert.equal(migrated.id, 'kept')
+  assert.equal(migrated.source, 'assistant')
+  const derived = migrateV1Entry({ text: 'a fact', tags: [], createdAt: 1, updatedAt: 2, origin: 'user' }, 'user')
+  assert.equal(derived.id, entryId('a fact'))
 })

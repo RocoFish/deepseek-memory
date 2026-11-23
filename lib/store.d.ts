@@ -28,16 +28,57 @@ export declare const DEFAULT_MAX_ENTRY_CHARS = 500;
 export declare const MAX_TAGS_PER_ENTRY = 32;
 /** Hard ceiling on one tag's length, in Unicode code points. */
 export declare const MAX_TAG_CHARS = 64;
-/** Current on-disk format. A newer file is refused rather than misread. */
-export declare const STORE_FORMAT = 1;
+/**
+ * Current on-disk format. A newer file is refused rather than misread.
+ *
+ * v2 adds the household-registration fields (`scope`, `subject`, `key`,
+ * `status`, `confidence`, `source`, `supersedes`) that conflict detection and
+ * the arbitration view are built on. Format 1 files are migrated on load:
+ * the v1 fields map deterministically onto v2 defaults, and the migrated
+ * state is persisted as v2 on the next commit.
+ */
+export declare const STORE_FORMAT = 2;
+/** The oldest format this build still reads. */
+export declare const MIN_READ_FORMAT = 1;
 /** Which tier a store belongs to. */
 export type MemoryTier = 'user' | 'project';
-/** One curated memory entry. */
+/**
+ * Which layer of the system a memory belongs to.
+ *
+ * `session` exists in the type system because session-scoped values outrank
+ * every persisted card during resolution, but session values are never
+ * persisted — writing one would let a transient convention pollute the
+ * conflict view forever.
+ */
+export type MemoryScope = 'session' | 'project' | 'personal-topic' | 'personal-global' | 'imported';
+/** Which scopes a tier's store may hold. Anything else is a scope violation. */
+export declare const TIER_SCOPES: Readonly<Record<MemoryTier, readonly MemoryScope[]>>;
+/** Lifecycle state of one card. */
+export type MemoryStatus = 'active' | 'superseded' | 'archived' | 'disputed';
+/** How trustworthy the card's value is, independent of where it came from. */
+export type MemoryConfidence = 'user-confirmed' | 'high' | 'medium' | 'low';
+/** Where the card's information originated. */
+export type MemorySource = 'user' | 'assistant' | 'dream' | 'import';
+/** One curated memory entry — a card with a household registration, not just text. */
 export interface MemoryEntry {
     /** Short stable id, derived from the text so re-adding the same fact is a no-op. */
     readonly id: string;
+    /** Which layer this card belongs to; derived from the tier unless set explicitly. */
+    readonly scope: MemoryScope;
+    /** What the card is about, e.g. 'deepseek-memory', 'math-modeling', 'preference'. */
+    readonly subject: string;
+    /** The normalized decision point the card answers, e.g. 'assistant-name'. Defaults to the id. */
+    readonly key: string;
     /** The remembered fact, one self-contained sentence or two. */
     readonly text: string;
+    /** Lifecycle state. Injection reads active/disputed; superseded and archived are kept for replay. */
+    readonly status: MemoryStatus;
+    /** Trust level, separate from source: a user statement can still be stale, an inference can still be right. */
+    readonly confidence: MemoryConfidence;
+    /** Where the information came from. */
+    readonly source: MemorySource;
+    /** Ids of cards this one superseded; kept so every arbitration stays replayable. */
+    readonly supersedes: readonly string[];
     /** Free-form labels for the injector's section ordering and manual browsing. */
     readonly tags: readonly string[];
     /** Creation time, epoch milliseconds. */
@@ -76,6 +117,26 @@ export declare class MemoryError extends Error {
 export declare function normalizeEntryText(value: string): string;
 /** Unicode code-point length, so the cap means the same thing for CJK and Latin. */
 export declare function codePointLength(value: string): number;
+/**
+ * Map a format-1 entry onto format-2 defaults.
+ *
+ * v1 carried no household registration, so the tier supplies it: a project-tier
+ * entry becomes a `project`-scoped card about 'project', a user-tier entry a
+ * `personal-global` card about 'preference'. Historical entries default to
+ * `high` confidence rather than `user-confirmed`: they have been acted on in
+ * real sessions, which is weaker evidence than an explicit confirmation and
+ * stronger than a fresh inference — and it leaves room for the user to promote
+ * them later through the arbitration view.
+ */
+export declare function migrateV1Entry(entry: {
+    id?: unknown;
+    text: string;
+    tags: string[];
+    createdAt: number;
+    updatedAt: number;
+    origin: 'user' | 'consolidator';
+    sourceSession?: string;
+}, tier: MemoryTier): MemoryEntry;
 /**
  * Derive an entry id from its text.
  *
@@ -121,9 +182,13 @@ export declare class MemoryStore {
     /**
      * Load a parsed store file.
      *
-     * A file written by a newer format is refused instead of guessed at, because
-     * silently dropping fields the running build does not know about is how a
-     * memory store loses data without anyone noticing.
+     * Formats from {@link MIN_READ_FORMAT} through {@link STORE_FORMAT} are read;
+     * older files are migrated in memory (v1 entries gain their household
+     * registration from defaults, see {@link migrateV1Entry}) and are persisted
+     * as the current format on the next commit. A file written by a *newer*
+     * format is refused instead of guessed at, because silently dropping fields
+     * the running build does not know about is how a memory store loses data
+     * without anyone noticing.
      * @param raw - parsed JSON, however malformed.
      * @param source - where it came from, for diagnostics.
      */
@@ -132,8 +197,14 @@ export declare class MemoryStore {
     toFile(now: number): StoreFile;
     /**
      * Add one entry.
+     *
+     * The scope is validated against the tier: a project-tier store holds only
+     * `project` cards, a user-tier store only `personal-*` cards. `session` and
+     * `imported` are never writable here — session values are never persisted,
+     * and imported cards enter through the import flow, not through the model's
+     * add tool.
      * @returns the stored entry, plus whether it was newly created.
-     * @throws {MemoryError} when the text is invalid, duplicates an existing entry, or the store is full.
+     * @throws {MemoryError} when the text is invalid, duplicates an existing entry, the scope does not belong in this tier, or the store is full.
      */
     add(input: {
         text: string;
@@ -141,6 +212,12 @@ export declare class MemoryStore {
         origin: MemoryEntry['origin'];
         sourceSession?: string;
         now: number;
+        scope?: Exclude<MemoryScope, 'session' | 'imported'>;
+        subject?: string;
+        key?: string;
+        confidence?: MemoryConfidence;
+        source?: MemorySource;
+        supersedes?: readonly string[];
     }): {
         entry: MemoryEntry;
         created: boolean;
