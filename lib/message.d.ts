@@ -36,4 +36,3 @@ export declare function textBlock(text: string): ContentBlock;
  * @returns a complete `UserMessage`, ready for `Agent.inject` or a request's messages.
  */
 export declare function createMemoryUserMessage(text: string): UserMessage;
-//# sourceMappingURL=message.d.ts.map

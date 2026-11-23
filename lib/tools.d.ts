@@ -19,17 +19,4 @@ export interface MemoryDiagnostics {
     /** The project directory in effect when the plugin loaded. */
     readonly projectDir: string | undefined;
 }
-/**
- * Build the memory tool definitions.
- *
- * Synchronous, and dependent on nothing outside this package: the definition
- * helper is implemented locally (see `./define.ts` for why). That is the whole
- * point — a tool surface that needs a module the profile cannot resolve is a
- * tool surface that is silently absent on a real install.
- *
- * @param runtime - the store owner.
- * @param diagnostics - what the plugin resolved at load time, for `memory_status`.
- * @returns registry-ready definitions in registration order.
- */
 export declare function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDiagnostics): ToolDefinition[];
-//# sourceMappingURL=tools.d.ts.map

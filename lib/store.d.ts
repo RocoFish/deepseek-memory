@@ -272,4 +272,3 @@ export declare class MemoryStore {
     /** List entries, optionally narrowed by a literal case-insensitive substring. */
     list(query?: string): MemoryEntry[];
 }
-//# sourceMappingURL=store.d.ts.map

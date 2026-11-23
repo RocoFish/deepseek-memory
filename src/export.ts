@@ -321,10 +321,25 @@ export function assembleBundle(meta: {
   const redactions = new Map<string, number>()
   const files: BundleFile[] = []
   const jsonl: string[] = []
-  for (const entry of meta.selection.entries) {
-    const redacted = redactSecrets(entry.text)
+  const redactField = (value: string): string => {
+    const redacted = redactSecrets(value)
     for (const item of redacted.report) redactions.set(item.label, (redactions.get(item.label) ?? 0) + item.count)
-    const exported: MemoryEntry = redacted.text === entry.text ? entry : { ...entry, text: redacted.text }
+    return redacted.text
+  }
+  for (const entry of meta.selection.entries) {
+    // Redaction covers every string field the bundle emits, not just the body
+    // text: a credential pasted into a subject, key, or tag would otherwise
+    // survive in the frontmatter and the JSONL stream. Counts feed the report
+    // either way, so masking is never silent.
+    const redactedText = redactSecrets(entry.text)
+    for (const item of redactedText.report) redactions.set(item.label, (redactions.get(item.label) ?? 0) + item.count)
+    const exported: MemoryEntry = {
+      ...entry,
+      text: redactedText.text,
+      subject: redactField(entry.subject),
+      key: redactField(entry.key),
+      tags: entry.tags.map(redactField),
+    }
     files.push({ path: cardPath(entry), data: Buffer.from(cardToMarkdown(exported), 'utf8') })
     jsonl.push(JSON.stringify(exported))
   }
@@ -372,10 +387,21 @@ export function verifyExport(dir: string): { ok: boolean; missing: string[]; mis
   if (!existsSync(manifestPath)) {
     return { ok: false, missing: ['MANIFEST.json'], mismatched: [] }
   }
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ExportManifest
+  let manifest: ExportManifest
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ExportManifest
+  } catch {
+    return { ok: false, missing: ['MANIFEST.json (not valid JSON)'], mismatched: [] }
+  }
+  // Entries the manifest does not describe as {path, sha256} strings are
+  // unusable; skip them rather than let one corrupt row crash the walk.
+  const listed = (Array.isArray(manifest.files) ? manifest.files : []).filter(
+    (entry): entry is ManifestEntry => entry !== null && typeof entry === 'object'
+      && typeof (entry as ManifestEntry).path === 'string' && typeof (entry as ManifestEntry).sha256 === 'string',
+  )
   const missing: string[] = []
   const mismatched: string[] = []
-  for (const entry of manifest.files ?? []) {
+  for (const entry of listed) {
     const file = join(dir, ...entry.path.split('/'))
     if (!existsSync(file)) {
       missing.push(entry.path)
@@ -384,18 +410,21 @@ export function verifyExport(dir: string): { ok: boolean; missing: string[]; mis
     if (sha256Hex(readFileSync(file)) !== entry.sha256) mismatched.push(entry.path)
   }
   // A bundle that gained files the manifest never signed is also dishonest.
+  // The walk is bounded: verify is a model-reachable path, so a huge or deep
+  // directory must not turn it into an unbounded read.
   const onDisk = new Set<string>()
-  const walk = (relative: string): void => {
+  const walk = (relative: string, depth: number): void => {
+    if (depth > 16 || onDisk.size > 4096) return
     for (const item of readdirSync(join(dir, relative), { withFileTypes: true })) {
       const child = relative === '' ? item.name : `${relative}/${item.name}`
-      if (item.isDirectory()) walk(child)
+      if (item.isDirectory()) walk(child, depth + 1)
       else onDisk.add(child)
     }
   }
-  walk('')
+  walk('', 0)
   for (const path of onDisk) {
     if (path === 'MANIFEST.json' || path === 'memory-export.zip') continue
-    if (!(manifest.files ?? []).some(entry => entry.path === path)) missing.push(`unsigned:${path}`)
+    if (!listed.some(entry => entry.path === path)) missing.push(`unsigned:${path}`)
   }
   return { ok: missing.length === 0 && mismatched.length === 0, missing, mismatched }
 }

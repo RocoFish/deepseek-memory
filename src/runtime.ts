@@ -246,6 +246,10 @@ export class MemoryRuntime {
   }
 
   /** The store for one tier, loaded from disk on first use. */
+  storeLimits(): { maxEntries: number; maxEntryChars: number } {
+    return { maxEntries: this.#config.maxEntries, maxEntryChars: this.#config.maxEntryChars }
+  }
+
   store(tier: MemoryTier): MemoryStore {
     const cached = this.#stores.get(tier)
     if (cached !== undefined) return cached

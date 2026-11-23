@@ -48,4 +48,3 @@ export interface RenderedMemory {
  * @returns the section text and what it contains.
  */
 export declare function renderMemory(tiers: readonly TierView[], budgetChars: number): RenderedMemory;
-//# sourceMappingURL=prompt.d.ts.map

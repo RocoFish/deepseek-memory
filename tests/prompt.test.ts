@@ -11,7 +11,14 @@ import type { MemoryEntry } from '../src/store.ts'
 
 const entry = (id: string, text: string): MemoryEntry => ({
   id,
+  scope: 'project',
+  subject: 'test',
+  key: id,
   text,
+  status: 'active',
+  confidence: 'user-confirmed',
+  source: 'user',
+  supersedes: [],
   tags: [],
   createdAt: 1,
   updatedAt: 1,

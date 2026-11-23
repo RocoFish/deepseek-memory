@@ -61,4 +61,3 @@ export declare const DEFAULT_CONFIG: MemoryConfig;
  * @param raw - whatever the loader passed as plugin config.
  */
 export declare function resolveConfig(raw: unknown): MemoryConfig;
-//# sourceMappingURL=config.d.ts.map

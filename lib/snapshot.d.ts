@@ -67,4 +67,3 @@ export declare function pruneSnapshots(runtime: MemoryRuntime): void;
  * caller's to log; a snapshot hiccup must never stop the plugin from loading.
  */
 export declare function maybeAutoSnapshot(runtime: MemoryRuntime, now?: number): SnapshotMeta[];
-//# sourceMappingURL=snapshot.d.ts.map

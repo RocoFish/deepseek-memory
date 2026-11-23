@@ -95,4 +95,3 @@ export declare function buildArbitrationView(tiered: readonly TieredEntry[], con
  * actually holds the loser.
  */
 export declare function competingCards(winner: MemoryEntry, candidates: readonly TieredEntry[]): TieredEntry[];
-//# sourceMappingURL=arbitrate.d.ts.map
