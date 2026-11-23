@@ -140,8 +140,8 @@ function eventText(event: unknown): { role: 'user' | 'assistant'; text: string }
  * Reusing the session's route is the only defensible choice for the consolidator:
  * it is the model the user already selected for this conversation, it needs no
  * extra configuration, and it cannot silently call something they did not
- * choose. Two event types can carry it, and both are read because either may
- * be absent depending on how the request was assembled.
+ * choose. Two event types can carry it, and both are read because either may be
+ * absent depending on how the request was assembled.
  */
 function routeFromEvent(event: unknown): { provider: string; model: string } | undefined {
   if (event === null || typeof event !== 'object') return undefined
