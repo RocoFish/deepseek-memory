@@ -2,6 +2,35 @@
 
 Notable changes to `deepseek-memory`. Versions follow [semver](https://semver.org/).
 
+## Unreleased
+
+Household-registration stage 1: every durable memory now carries a household
+record, and the resolver can show which card is in force without deleting the
+losers.
+
+**Added**
+
+- Memory entries are now cards with `scope`, `subject`, `key`, `status`,
+  `confidence`, `source`, and `supersedes`. Existing format-1 files still load
+  and migrate in memory; the next commit writes format 2.
+- Scope resolution for injection: inside a project session, project cards beat
+  personal-global cards; user-confirmed beats assistant inference; recency
+  breaks ties only after scope and confidence match; imported cards never
+  affect answers; personal-topic cards stay invisible until their subject is
+  in play.
+- `memory_add` accepts an optional `subject`; `memory_list` shows scope and
+  status; `memory_status` reports suspected scope violations by id.
+- Injection dedupes by `(subject, key)` so a project value wins without the
+  shadowed global value being repeated as a separate fact.
+
+**Changed**
+
+- The entry ceiling now counts only live cards (`active` and `disputed`);
+  `superseded` and `archived` cards stay on disk for replay without consuming
+  capacity.
+- Adds reject cards whose scope does not belong to the store tier with
+  `MEMORY_SCOPE_VIOLATION`.
+
 ## 0.1.4
 
 Version-metadata fix — no code changes.
@@ -16,7 +45,7 @@ Version-metadata fix — no code changes.
 ## 0.1.3
 
 Release hygiene for the 0.1.2 security fixes: the committed build output and
-the dependency snapshot are brought in line with the verified local build.
+.the dependency snapshot are brought in line with the verified local build.
 Backfilled from git history — the tag shipped without a manifest bump.
 
 **Fixed**
