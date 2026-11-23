@@ -14,6 +14,8 @@ import { spec } from 'node:test/reporters'
 
 import './store.test.ts'
 import './scope.test.ts'
+import './arbitrate.test.ts'
+import './snapshot.test.ts'
 import './gate.test.ts'
 import './prompt.test.ts'
 import './runtime.test.ts'

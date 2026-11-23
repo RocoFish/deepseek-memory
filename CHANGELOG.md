@@ -22,6 +22,41 @@ losers.
   status; `memory_status` reports suspected scope violations by id.
 - Injection dedupes by `(subject, key)` so a project value wins without the
   shadowed global value being repeated as a separate fact.
+- `memory_conflicts`: a read-only arbitration console. Every `(subject, key)`
+  group across both tiers, which value is in force and *why* (scope,
+  confidence, or recency, measured against the strongest losing card), which
+  cards lost, and which cards need a human: disputed groups, tier scope
+  violations, unclaimed imported cards, and weakly supported in-force cards.
+  Suggests nothing, changes nothing.
+- `memory_arbitrate`: the four confirmed rulings — `adopt` (winner becomes
+  `user-confirmed`, competitors become `superseded`, never deleted; the
+  winner records what it demoted so the decision replays), `merge` (several
+  cards become one new card), `mark-wrong` (archived, kept for replay), and
+  `confirm-import` (an imported card enters a real scope, moving tiers when
+  needed). Every action takes a `pre-op` snapshot of the whole library first.
+- `memory_snapshot` / `memory_restore`: named, restorable points-in-time of
+  the whole library. Snapshots capture on-disk truth and live in the user tier
+  (with the project tier as fallback), so the project repository is never
+  polluted. Retention keeps the newest pre-op x20, daily x7, weekly x4,
+  pre-restore x10; the first session of a day/week writes the daily/weekly
+  snapshot automatically. Restore always previews first — four buckets per
+  tier (`added`, `removed`, `modified`, `conflicts`, where a conflict is a
+  card the current side edited *after* the snapshot was taken) — and apply
+  writes only the explicitly confirmed selections, backing the current
+  library up as `pre-restore` before anything lands.
+- `memory_export`: take the library out as one Markdown file per card with
+  YAML frontmatter plus `INDEX.md` (`markdown`), a one-card-per-line JSONL
+  stream (`jsonl`), or the full bundle zipped (`zip`). `MANIFEST.json` signs
+  every file with SHA-256, credential-shaped strings (tokens, PATs, private
+  keys) are masked and counted by kind, and `format: "verify"` re-checks an
+  export, locating missing or tampered files by name.
+- `MemoryStore.adjudicate` changes a card's registration fields (scope,
+  status, confidence, supersedes) as one replayable step without touching its
+  text; `MemoryStore.upsertRestored` is the restore-only write path that
+  reproduces snapshot entries exactly.
+- Fixed: `decidedBy` named the axis of a mid-loop comparison, so a winner
+  that happened to be listed first always reported `recency`; it now names
+  the axis that separates the winner from the strongest losing card.
 
 **Changed**
 

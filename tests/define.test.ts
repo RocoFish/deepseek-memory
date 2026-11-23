@@ -113,6 +113,11 @@ test('every memory tool compiles to a parameter root with the SDK-expected key s
     memory_list: [],
     memory_search: ['query'],
     memory_status: [],
+    memory_conflicts: [],
+    memory_arbitrate: ['action', 'ids'],
+    memory_snapshot: ['action'],
+    memory_restore: ['snapshot', 'action'],
+    memory_export: ['format'],
   }
   assert.deepEqual(
     tools.map(tool => tool.name).sort(),
