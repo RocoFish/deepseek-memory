@@ -13,6 +13,7 @@ import { run } from 'node:test'
 import { spec } from 'node:test/reporters'
 
 import './store.test.ts'
+import './scope.test.ts'
 import './gate.test.ts'
 import './prompt.test.ts'
 import './runtime.test.ts'
