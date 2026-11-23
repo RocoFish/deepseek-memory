@@ -1,17 +1,3 @@
-/**
- * The model-facing memory tools.
- *
- * Written against the published `defineTool` API (`@deepseek-ai/dsh-tools`), not
- * a hand-rolled definition: the registry validates model arguments against these
- * schemas before `execute` runs, so the bodies can trust their inputs, and the
- * schemas reach the system prompt through the normal tool view.
- *
- * Every refusal is a `MemoryError` carrying text the model can act on. The
- * registry turns a throw into a failed call, so the teaching text lands in the
- * transcript where the next step can read it.
- *
- * @module deepseek-memory/tools
- */
 import type { ToolDefinition } from './define.ts';
 import type { MemoryTier } from './store.ts';
 import type { MemoryRuntime } from './runtime.ts';
