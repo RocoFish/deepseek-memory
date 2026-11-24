@@ -2,7 +2,7 @@
 
 Notable changes to `deepseek-memory`. Versions follow [semver](https://semver.org/).
 
-## Unreleased
+## 1.0.5
 
 Fourth audit round: two medium findings and two edge cases from a full
 re-read of the source (typecheck clean, 154/154 tests).
