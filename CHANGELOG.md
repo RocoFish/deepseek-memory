@@ -2,7 +2,7 @@
 
 Notable changes to `deepseek-memory`. Versions follow [semver](https://semver.org/).
 
-## Unreleased
+## 1.0.3
 
 Second audit round: eight findings from a full read of the source are fixed,
 three of them behavioral. The direct-path consolidator now rolls a tier back

@@ -1,6 +1,6 @@
 {
   "name": "deepseek-memory",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Curated long-term memory for DeepSeek Harness: two tiers of small plain-text facts, memory tools, per-request injection, and after-turn consolidation.",
   "license": "MIT",
   "author": "RocoFish",
