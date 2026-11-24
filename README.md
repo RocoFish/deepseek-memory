@@ -73,7 +73,7 @@ Contributors cloning the repository get no `lib/` (or can delete it) and build w
 `pnpm install && pnpm run build`.
 
 **This repository is developed and audited with pnpm; `pnpm-lock.yaml` is the one
-lockfile.** `package.json` carries `pnpm.overrides` (zod is pinned to 4.6.6) that
+lockfile.** `pnpm-workspace.yaml` carries `overrides` (zod is pinned to 4.6.6) that
 only pnpm applies, so running `npm install` or `npm audit` re-resolves the semver
 ranges without those pins and reports vulnerabilities the locked tree does not
 actually contain — the "high" severities that produces are false positives, not
@@ -344,8 +344,11 @@ suggests — it never silently rewrites a card, and no ruling deletes one.
   never deleted), and the winner records their ids in `supersedes`, so the
   decision replays later. `merge` folds several cards into one new card.
   `mark-wrong` archives a card, keeping it for replay. `confirm-import` moves
-  an imported card into a real scope, across tiers when needed. Every action
-  snapshots the whole library first.
+  an imported card into a real scope — `project` or `personal-global` only.
+  `personal-topic` is deliberately not offered: prompt injection resolves with
+  no subjects, so a topic-scoped card would consume an injection slot yet
+  never render in the prompt; confirmed cards always go to an always-visible
+  scope. Every action snapshots the whole library first.
 - `memory_snapshot` / `memory_restore` — named, restorable points-in-time of
   the whole library. Snapshots capture on-disk truth and live in the user tier
   (`$DSH_HOME/memory/snapshots/`), never inside the project repository.

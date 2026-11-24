@@ -18,8 +18,8 @@
  * @module deepseek-memory/snapshot
  */
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { join, sep } from 'node:path'
 import type { MemoryRuntime } from './runtime.ts'
 import type { MemoryTier, StoreFile } from './store.ts'
 import { MemoryError, MemoryStore } from './store.ts'
@@ -68,8 +68,15 @@ export interface SnapshotMeta {
   readonly file: string
 }
 
-/** Snapshot ids are file names; anything else is a path-traversal attempt. */
-const SNAPSHOT_ID_PATTERN = /^[a-z]+-[0-9T].*[0-9a-f]{8}$/
+/**
+ * Snapshot ids are file names, so the pattern pins the exact format
+ * `createSnapshot` produces — kind, ISO timestamp with `:` and `.` rendered
+ * as `-`, then an 8-hex-char uuid suffix — and nothing else. The character
+ * classes exclude `/`, `\`, and `.` outright: a traversal segment like
+ * `daily-1/../../../../tmp/evil0000dead` can no longer satisfy the check the
+ * way the previous loose `.*` allowed.
+ */
+const SNAPSHOT_ID_PATTERN = /^(?:pre-op|pre-restore|daily|weekly|manual)-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{8}$/
 
 /**
  * The directory snapshots live in: the user tier's directory when the user
@@ -181,11 +188,22 @@ export function loadSnapshot(runtime: MemoryRuntime, id: string): SnapshotFile {
   if (!SNAPSHOT_ID_PATTERN.test(id)) {
     throw new MemoryError(`"${id}" is not a snapshot id. Call memory_snapshot with action "list" to see the ids.`, 'MEMORY_SNAPSHOT_NOT_FOUND')
   }
-  const file = join(snapshotDir(runtime), `${id}.json`)
+  const dir = snapshotDir(runtime)
+  const file = join(dir, `${id}.json`)
   if (!existsSync(file)) {
     throw new MemoryError(`there is no snapshot with id ${id}. Call memory_snapshot with action "list" to see the ids.`, 'MEMORY_SNAPSHOT_NOT_FOUND')
   }
-  const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<SnapshotFile>
+  // Belt to the regex's suspenders: the id pattern excludes separators, but a
+  // symlink swapped into the snapshots directory after the tier location was
+  // validated could still redirect the read. Restore feeds a snapshot's
+  // entries into the store, so the on-disk path is re-resolved and must sit
+  // inside the real snapshots directory — the same symlink discipline the
+  // store itself keeps on every commit.
+  const resolvedFile = realpathSync(file)
+  if (!resolvedFile.startsWith(realpathSync(dir) + sep)) {
+    throw new MemoryError(`snapshot at ${file} resolves outside the snapshots directory and was not read.`, 'MEMORY_SNAPSHOT_MALFORMED')
+  }
+  const parsed = JSON.parse(readFileSync(resolvedFile, 'utf8')) as Partial<SnapshotFile>
   if (parsed.snapshotVersion !== SNAPSHOT_FORMAT || typeof parsed.id !== 'string' || parsed.id !== id
     || typeof parsed.createdAt !== 'number' || typeof parsed.tiers !== 'object' || parsed.tiers === null) {
     throw new MemoryError(`snapshot at ${file} is malformed or uses an unsupported format.`, 'MEMORY_SNAPSHOT_MALFORMED')

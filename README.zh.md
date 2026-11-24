@@ -63,7 +63,7 @@ dsh plugin --profile web add github:RocoFish/deepseek-memory
 贡献者克隆仓库后没有 `lib/`（也可以自行删除），用 `pnpm install && pnpm run build` 构建即可。
 
 **本仓库的开发与审计都以 pnpm 为准，`pnpm-lock.yaml` 是唯一的锁文件。**
-`package.json` 里有只有 pnpm 才会应用的 `pnpm.overrides`（zod 钉在 4.6.6），
+`pnpm-workspace.yaml` 里有只有 pnpm 才会应用的 `overrides`（zod 钉在 4.6.6），
 所以用 `npm install` 或 `npm audit` 会绕开这些钉子、按 semver 区间重新解析，
 报告出锁定树里根本不存在的漏洞——那种“high”是假阳性，不是有依赖没补。
 请以 `pnpm audit` 为准（当前报告无已知漏洞）；CI 在每次 push 和 pull request
@@ -283,7 +283,9 @@ confidence、再按新旧裁决——败者以 **shadowed** 身份留在库里�
 - `memory_arbitrate`——四个**经确认**的裁决动作。`adopt` 采纳一条：它升为
   `user-confirmed`，活竞争者降为 `superseded`（保留不删），胜者把败者 id 记进自己
   的 `supersedes`，裁决日后可回放。`merge` 把多张卡并为一张新卡。`mark-wrong`
-  把卡归档（留档备查）。`confirm-import` 把 imported 卡转入正式 scope，必要时跨层
+  把卡归档（留档备查）。`confirm-import` 把 imported 卡转入正式 scope（只有
+  `project` 和 `personal-global` 两种目标：prompt 注入不传 subjects，`personal-topic`
+  卡占了注入额度却永远不进 prompt，所以确认导入一律进永远可见的 scope），必要时跨层
   搬移。每个动作执行前都会先给整个库打一份 pre-op 快照。
 - `memory_snapshot` / `memory_restore`——可命名的整库还原点。快照拍的是**磁盘上的
   真身**，存放在用户层（`$DSH_HOME/memory/snapshots/`），绝不落进项目仓库。保留

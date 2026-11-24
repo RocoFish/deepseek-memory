@@ -1,0 +1,7 @@
+# pnpm 10 removed support for the `pnpm.overrides` field in package.json
+# (install and every `pnpm run` fail with ERR_PNPM_VERIFY_DEPS_BEFORE_RUN
+# until it is removed); workspace-root `overrides` here is the supported
+# home for the same pin. `pnpm.overrides` in package.json now fails
+# verification rather than being ignored, so the pin must live here.
+overrides:
+  zod: 4.6.6
