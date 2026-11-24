@@ -39,7 +39,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { LlmRuntime, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
-import { dirname, join } from 'node:path/win32'
+// `node:path` (not `node:path/win32`): the win32 module builds backslash paths
+// on every platform, so on Linux/macOS it would silently scatter the user tier
+// into a relative directory named like `\home\<user>\.dsh`. The win32-only
+// environment candidates (USERPROFILE, HOMEDRIVE/HOMEPATH) simply never match
+// on POSIX, which is the correct outcome there.
+import { dirname, join } from 'node:path'
 import { resolveConfig, type MemoryConfig } from './config.ts'
 import { consolidateTurn, type TurnCapture } from './consolidate.ts'
 import { createMemoryUserMessage } from './message.ts'

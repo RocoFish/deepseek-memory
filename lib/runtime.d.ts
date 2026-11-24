@@ -68,6 +68,12 @@ export declare class MemoryRuntime {
     /** Drop the cache so the next read observes on-disk edits. */
     refresh(): void;
     /**
+     * Discard one tier's cached store without committing it, abandoning any
+     * in-memory mutations made against it. The next `store(tier)` reloads from
+     * disk, which is how a caller rolls a tier back to its on-disk state.
+     */
+    discard(tier: MemoryTier): void;
+    /**
      * Arm a cap on mutating memory-tool calls (add/update/delete).
      *
      * Used only by the child consolidator: a run that can call all memory tools

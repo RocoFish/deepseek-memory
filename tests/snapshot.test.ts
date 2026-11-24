@@ -306,6 +306,33 @@ test('memory_arbitrate adopt takes a pre-op snapshot, demotes competitors, and c
   } finally { box.cleanup() }
 })
 
+test('memory_arbitrate merge refuses to merge into the text of a card that already exists', async () => {
+  const box = sandbox()
+  try {
+    const first = box.runtime.store('project').add({ text: 'this repo tests with node:test', origin: 'user', now: 1, subject: 'deepseek-memory', key: 'test-runner' })
+    const second = box.runtime.store('project').add({ text: 'deepseek-memory tests with vitest', origin: 'user', now: 1, subject: 'deepseek-memory', key: 'test-runner' })
+    box.runtime.commit('project')
+
+    // Merging into the exact text of a source would make the "merged" card that
+    // very source card, then supersede it with itself — a self-referential loop
+    // that removes the group's effective card from the arbitration view.
+    await assert.rejects(
+      tool(box.runtime, 'memory_arbitrate').execute({
+        action: 'merge',
+        ids: [first.entry.id, second.entry.id],
+        text: first.entry.text,
+      }, undefined),
+      /already card .*use adopt/i,
+    )
+
+    const after = new MemoryRuntime(config, box.home, box.cwd, () => 2000)
+    const entries = after.store('project').entries()
+    assert.equal(entries.length, 2, 'no merged card is created')
+    assert.ok(entries.every(entry => entry.status === 'active'), 'neither source is superseded')
+    assert.ok(entries.every(entry => entry.supersedes.length === 0), 'no self-referential supersedes chain')
+  } finally { box.cleanup() }
+})
+
 test('memory_conflicts renders the console and changes nothing', async () => {
   const box = sandbox()
   try {
