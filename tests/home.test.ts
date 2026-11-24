@@ -7,6 +7,14 @@
  * process carries no `DSH_HOME`, while a shell spawned from the same application
  * does, so the tier was silently absent in the GUI for the whole project.
  *
+ * The resolver builds paths with the platform `node:path` module, so the
+ * expected values below are composed with the same `join`/`dirname` rather than
+ * hard-coded: the Windows-style candidates must keep working on Windows while
+ * POSIX inputs must produce POSIX outputs on every platform. A hard-coded
+ * win32 expectation would re-introduce the `node:path/win32` regression this
+ * suite exists to catch — the tests were all green while the user tier wrote
+ * into a relative `\home\...` tree on Linux.
+ *
  * These tests call the resolver with an explicit environment map and never touch
  * `process.env`. The test runner executes files concurrently in one process, and
  * another file here does set `DSH_HOME`; mutating global state from a test is how
@@ -14,8 +22,12 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { dirname, join } from 'node:path'
 import { resolveHome, resolveHomeFromEnv } from '../src/index.ts'
 
+// Windows-style candidates: only meaningful on Windows, where `node:path`
+// produces backslash paths. Composing expectations with `join` keeps these
+// assertions correct on both platforms.
 test('DSH_HOME wins over every derived candidate', () => {
   assert.deepEqual(
     resolveHomeFromEnv({
@@ -32,7 +44,7 @@ test('a blank DSH_HOME is treated as unset, not as an empty home', () => {
   // the process working directory — the exact scattering the tier exists to avoid.
   assert.deepEqual(
     resolveHomeFromEnv({ DSH_HOME: '   ', USERPROFILE: 'X:\\Users\\someone' }),
-    { home: 'X:\\Users\\someone\\.dsh', source: 'USERPROFILE/.dsh' },
+    { home: join('X:\\Users\\someone', '.dsh'), source: 'USERPROFILE/.dsh' },
   )
 })
 
@@ -43,21 +55,36 @@ test('the profile directory supplies the home when DSH_HOME is absent', () => {
       DSH_PROFILE_DIR: 'X:\\home\\.dsh\\profiles\\desktop',
       USERPROFILE: 'X:\\Users\\someone',
     }),
-    { home: 'X:\\home\\.dsh', source: 'DSH_PROFILE_DIR parent' },
+    { home: dirname(dirname('X:\\home\\.dsh\\profiles\\desktop')), source: 'DSH_PROFILE_DIR parent' },
   )
 })
 
 test('USERPROFILE supplies the standard Windows home directory', () => {
   assert.deepEqual(
     resolveHomeFromEnv({ USERPROFILE: 'X:\\Users\\someone', HOMEDRIVE: 'X:', HOMEPATH: '\\ignored' }),
-    { home: 'X:\\Users\\someone\\.dsh', source: 'USERPROFILE/.dsh' },
+    { home: join('X:\\Users\\someone', '.dsh'), source: 'USERPROFILE/.dsh' },
   )
 })
 
 test('HOMEDRIVE plus HOMEPATH is the last environment resort', () => {
   assert.deepEqual(
     resolveHomeFromEnv({ HOMEDRIVE: 'X:', HOMEPATH: '\\Users\\someone' }),
-    { home: 'X:\\Users\\someone\\.dsh', source: 'HOMEDRIVE+HOMEPATH/.dsh' },
+    { home: join('X:\\Users\\someone', '.dsh'), source: 'HOMEDRIVE+HOMEPATH/.dsh' },
+  )
+})
+
+// POSIX inputs must produce POSIX outputs on every platform. This is the
+// regression test for the `node:path/win32` import: with the win32 module,
+// `join('/home/someone', 'memory')` returns a backslash path on Linux and the
+// user tier silently writes into a relative directory under the cwd.
+test('POSIX paths resolve to POSIX paths on every platform', () => {
+  assert.deepEqual(
+    resolveHomeFromEnv({ DSH_PROFILE_DIR: '/home/someone/.dsh/profiles/desktop' }),
+    { home: '/home/someone/.dsh', source: 'DSH_PROFILE_DIR parent' },
+  )
+  assert.deepEqual(
+    resolveHomeFromEnv({ USERPROFILE: '/home/someone' }),
+    { home: '/home/someone/.dsh', source: 'USERPROFILE/.dsh' },
   )
 })
 

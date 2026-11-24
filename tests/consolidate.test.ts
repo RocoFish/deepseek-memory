@@ -81,32 +81,54 @@ test('applyActions applies a valid set and reports each change', () => {
   } finally { box.cleanup() }
 })
 
-test('applyActions refuses an unknown id without touching the rest', () => {
+test('applyActions rolls the whole tier back when one action in it is refused', () => {
   const box = sandbox()
   try {
     box.runtime.store('project').add({ text: 'a real entry worth keeping', origin: 'user', now: 1 })
+    box.runtime.commit('project')
     const { applied, rejected } = applyActions(box.runtime, [
       { op: 'add', tier: 'project', text: 'a brand new convention here' },
       { op: 'update', tier: 'project', id: 'mdoesnotexist', text: 'ghost' },
     ], 1000)
-    assert.equal(applied.length, 1, 'the valid action still applies')
-    assert.equal(rejected.length, 1)
+    // All-or-nothing per tier: the valid add is rolled back with the refused
+    // update, so the store holds only the entry it started with.
+    assert.equal(applied.length, 0)
+    assert.equal(rejected.length, 2)
     assert.match(rejected[0]!, /no memory entry with id/)
-    assert.equal(box.runtime.store('project').size, 2)
+    assert.match(rejected[1]!, /rolled back with the tier/)
+    assert.equal(box.runtime.store('project').size, 1)
   } finally { box.cleanup() }
 })
 
-test('applyActions enforces the store ceiling rather than silently dropping', () => {
+test('applyActions enforces the store ceiling by rolling the tier back', () => {
   const box = sandbox({ maxEntries: 1 })
   try {
     const { applied, rejected } = applyActions(box.runtime, [
       { op: 'add', tier: 'project', text: 'first fact to be stored here' },
       { op: 'add', tier: 'project', text: 'second fact that will not fit' },
     ], 1000)
-    assert.equal(applied.length, 1)
-    assert.equal(rejected.length, 1)
+    assert.equal(applied.length, 0)
+    assert.equal(rejected.length, 2)
     assert.match(rejected[0]!, /maximum of 1 entries/)
+    assert.equal(box.runtime.store('project').size, 0)
+  } finally { box.cleanup() }
+})
+
+test('applyActions keeps a clean tier committed when another tier fails', () => {
+  const box = sandbox()
+  try {
+    const { applied, rejected } = applyActions(box.runtime, [
+      { op: 'add', tier: 'project', text: 'a project convention that applies' },
+      { op: 'update', tier: 'user', id: 'mdoesnotexist', text: 'ghost' },
+    ], 1000)
+    // The project tier is untouched by the user tier's refusal: it commits, the
+    // user tier rolls back, and neither outcome hides in an exception.
+    assert.equal(applied.length, 1)
+    assert.match(applied[0]!, /^add project /)
+    assert.equal(rejected.length, 1)
+    assert.match(rejected[0]!, /no memory entry with id/)
     assert.equal(box.runtime.store('project').size, 1)
+    assert.equal(box.runtime.store('user').size, 0)
   } finally { box.cleanup() }
 })
 

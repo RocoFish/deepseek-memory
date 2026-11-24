@@ -456,11 +456,16 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
         if (ids.length === 0) {
           throw new MemoryError('memory_arbitrate needs at least one card id.', 'MEMORY_ENTRY_NOT_FOUND')
         }
-        const snapshotId = snapshotBeforeArbitration(runtime, args.action)
+        // The pre-operation snapshot is taken lazily, only after the branch's
+        // own argument validation has passed: an invalid call must not consume
+        // one of the limited pre-op snapshot slots.
+        let snapshotId: string | undefined
+        const snapshot = (): string => (snapshotId ??= snapshotBeforeArbitration(runtime, args.action))
 
         if (args.action === 'adopt') {
           const winner = findTiered(runtime, ids[0]!)
           const competitors = competingCards(winner.entry, collectTiered(runtime))
+          snapshotId = snapshot()
           const winnerStore = runtime.store(winner.tier)
           winnerStore.adjudicate({
             id: winner.entry.id,
@@ -489,9 +494,10 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
               'MEMORY_MERGE_CROSS_TIER',
             )
           }
+          snapshotId = snapshot()
           const first = sources[0]!.entry
           const store = runtime.store(targetTier)
-          const { entry: merged } = store.add({
+          const { entry: merged, created } = store.add({
             text: args.text,
             tags: [...new Set(sources.flatMap(({ entry }) => entry.tags))],
             origin: 'user',
@@ -501,6 +507,17 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
             confidence: 'user-confirmed',
             source: 'user',
           })
+          if (!created) {
+            // The merged text collides with a card that already exists — possibly
+            // one of the merge sources themselves. Adopting it would supersede
+            // the card with itself (a self-referential loop in which the group's
+            // effective card disappears from the arbitration view), so refuse and
+            // point at adopt, which is the operation that was actually intended.
+            throw new MemoryError(
+              `the merged text is already card ${merged.id}, so merging would supersede a card with itself. Use adopt on ${merged.id} instead, or merge into different wording.`,
+              'MEMORY_MERGE_SELF_REFERENCE',
+            )
+          }
           store.adjudicate({ id: merged.id, supersedes: sources.map(({ entry }) => entry.id), origin: 'user', now: Date.now() })
           for (const { entry } of sources) {
             store.adjudicate({ id: entry.id, status: 'superseded', origin: 'user', now: Date.now() })
@@ -510,10 +527,13 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
         }
 
         if (args.action === 'mark-wrong') {
+          // Resolve every id before mutating anything, so a bad id fails before
+          // the pre-op snapshot is taken or any card is touched.
+          const resolved = ids.map(id => findTiered(runtime, id))
+          snapshotId = snapshot()
           const archived: string[] = []
           const tiers: MemoryTier[] = []
-          for (const id of ids) {
-            const { tier, entry } = findTiered(runtime, id)
+          for (const { tier, entry } of resolved) {
             runtime.store(tier).adjudicate({ id: entry.id, status: 'archived', origin: 'user', now: Date.now() })
             archived.push(entry.id)
             tiers.push(tier)
@@ -535,6 +555,7 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
         if (!TIER_SCOPES[targetTier].includes(target)) {
           throw new MemoryError(`scope "${target}" does not belong in the ${targetTier} tier.`, 'MEMORY_SCOPE_VIOLATION')
         }
+        snapshotId = snapshot()
         if (tier === targetTier) {
           runtime.store(tier).adjudicate({
             id: entry.id,

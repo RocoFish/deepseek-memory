@@ -24,7 +24,7 @@ import type { MemoryConfig } from './config.ts'
 import { describeDecision, evaluateGate, type GateDecision } from './gate.ts'
 import { createMemoryUserMessage } from './message.ts'
 import type { MemoryRuntime } from './runtime.ts'
-import { MemoryError, type MemoryStore, type MemoryTier } from './store.ts'
+import { MemoryError, type MemoryTier } from './store.ts'
 import { runChildConsolidation, type SubagentConsolidator } from './subagent.ts'
 
 /** Hard cap on proposals applied from one run, so one bad run cannot rewrite a whole store. */
@@ -164,11 +164,22 @@ export function validateAction(raw: unknown): { action: ProposedAction } | { ref
 }
 
 /**
- * Apply a validated change set to one tier.
+ * Apply a validated change set, all-or-nothing per tier.
  *
- * All-or-nothing per tier: a refusal rolls that tier's in-memory changes back by
- * reloading from disk, so a partially valid proposal cannot leave a store in a
- * state the model did not propose.
+ * Actions are grouped by tier and each tier is applied as one unit:
+ *
+ * - Every action for a tier mutates the tier's in-memory store first. If any
+ *   action is refused — a bad id, a full store, a scope violation — the tier's
+ *   cached store is discarded without committing, which rolls its in-memory
+ *   changes back to the on-disk state. A partially valid proposal therefore
+ *   cannot leave a store in a state the model did not propose.
+ * - A tier that applies cleanly is committed before the next tier is touched,
+ *   so a commit failure (a lock timeout, a `MEMORY_STORE_CONFLICT` from
+ *   another process) affects only its own tier: earlier tiers stay committed,
+ *   later tiers are still attempted against fresh state, and every affected
+ *   action lands in `rejected` with the reason instead of aborting the whole
+ *   run silently.
+ *
  * @returns the applied descriptions and the refusals.
  */
 export function applyActions(
@@ -178,7 +189,7 @@ export function applyActions(
 ): { applied: string[]; rejected: string[] } {
   const applied: string[] = []
   const rejected: string[] = []
-  const touched = new Map<MemoryTier, MemoryStore>()
+  const byTier = new Map<MemoryTier, ProposedAction[]>()
 
   for (const action of actions) {
     const tier = action.op === 'none' ? undefined : action.tier
@@ -187,26 +198,59 @@ export function applyActions(
       rejected.push(`${action.op}: tier ${tier} is disabled`)
       continue
     }
-    try {
-      const store = runtime.store(tier)
-      if (action.op === 'add') {
-        const result = store.add({ text: action.text, tags: action.tags, origin: 'consolidator', now })
-        applied.push(result.created ? `add ${tier} ${result.entry.id}` : `add ${tier} ${result.entry.id} (already present)`)
-      } else if (action.op === 'update') {
-        const entry = store.update({ id: action.id, text: action.text, tags: action.tags, origin: 'consolidator', now })
-        applied.push(`update ${tier} ${entry.id}`)
-      } else if (action.op === 'delete') {
-        const entry = store.remove(action.id, now)
-        applied.push(`delete ${tier} ${entry.id}`)
+    const tierActions = byTier.get(tier) ?? []
+    tierActions.push(action)
+    byTier.set(tier, tierActions)
+  }
+
+  for (const [tier, tierActions] of byTier) {
+    const store = runtime.store(tier)
+    const tierApplied: string[] = []
+    let failure: string | undefined
+
+    for (const action of tierActions) {
+      try {
+        if (action.op === 'add') {
+          const result = store.add({ text: action.text, tags: action.tags, origin: 'consolidator', now })
+          tierApplied.push(result.created ? `add ${tier} ${result.entry.id}` : `add ${tier} ${result.entry.id} (already present)`)
+        } else if (action.op === 'update') {
+          const entry = store.update({ id: action.id, text: action.text, tags: action.tags, origin: 'consolidator', now })
+          tierApplied.push(`update ${tier} ${entry.id}`)
+        } else if (action.op === 'delete') {
+          const entry = store.remove(action.id, now)
+          tierApplied.push(`delete ${tier} ${entry.id}`)
+        }
+      } catch (error) {
+        const detail = error instanceof MemoryError ? error.message : String(error)
+        failure = `${action.op} ${tier}: ${detail}`
+        break
       }
-      touched.set(tier, store)
+    }
+
+    if (failure !== undefined) {
+      // Roll the tier back: nothing was committed, so dropping the mutated
+      // cache makes the next read observe the on-disk state. The tier's other
+      // actions are reported as rolled back, not as applied.
+      runtime.discard(tier)
+      rejected.push(failure)
+      rejected.push(...tierApplied.map(description => `${description}: rolled back with the tier`))
+      continue
+    }
+
+    try {
+      runtime.commit(tier, store)
+      applied.push(...tierApplied)
     } catch (error) {
+      // The commit is atomic per tier, so a failure here persisted nothing for
+      // this tier; the actions move to rejected with the reason. Commit
+      // failures already drop a stale cache; discard again so a failure that
+      // did not (e.g. a lock timeout) cannot leave uncommitted mutations live.
+      runtime.discard(tier)
       const detail = error instanceof MemoryError ? error.message : String(error)
-      rejected.push(`${action.op} ${tier}: ${detail}`)
+      rejected.push(...tierApplied.map(description => `${description}: not committed (${detail})`))
     }
   }
 
-  for (const [tier, store] of touched) runtime.commit(tier, store)
   return { applied, rejected }
 }
 

@@ -67,11 +67,22 @@ export declare function validateAction(raw: unknown): {
     refusal: string;
 };
 /**
- * Apply a validated change set to one tier.
+ * Apply a validated change set, all-or-nothing per tier.
  *
- * All-or-nothing per tier: a refusal rolls that tier's in-memory changes back by
- * reloading from disk, so a partially valid proposal cannot leave a store in a
- * state the model did not propose.
+ * Actions are grouped by tier and each tier is applied as one unit:
+ *
+ * - Every action for a tier mutates the tier's in-memory store first. If any
+ *   action is refused — a bad id, a full store, a scope violation — the tier's
+ *   cached store is discarded without committing, which rolls its in-memory
+ *   changes back to the on-disk state. A partially valid proposal therefore
+ *   cannot leave a store in a state the model did not propose.
+ * - A tier that applies cleanly is committed before the next tier is touched,
+ *   so a commit failure (a lock timeout, a `MEMORY_STORE_CONFLICT` from
+ *   another process) affects only its own tier: earlier tiers stay committed,
+ *   later tiers are still attempted against fresh state, and every affected
+ *   action lands in `rejected` with the reason instead of aborting the whole
+ *   run silently.
+ *
  * @returns the applied descriptions and the refusals.
  */
 export declare function applyActions(runtime: MemoryRuntime, actions: readonly ProposedAction[], now: number): {

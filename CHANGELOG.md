@@ -2,6 +2,49 @@
 
 Notable changes to `deepseek-memory`. Versions follow [semver](https://semver.org/).
 
+## Unreleased
+
+Second audit round: eight findings from a full read of the source are fixed,
+three of them behavioral. The direct-path consolidator now rolls a tier back
+when any action in it is refused, `merge` can no longer supersede a card with
+itself, and home resolution no longer hard-codes win32 path semantics.
+
+**Fixed**
+
+- `applyActions` is now all-or-nothing per tier, matching its documented
+  contract: a refused action rolls the tier's in-memory changes back to disk
+  state, a tier that applies cleanly commits before the next tier is touched,
+  and a commit failure (lock timeout, cross-process revision conflict) moves
+  only that tier's actions into `rejected` with the reason instead of
+  aborting the run with some tiers silently persisted.
+- `memory_arbitrate` `merge` refuses merged text that collides with an
+  existing card — including one of the merge sources — instead of creating a
+  self-referential supersede chain that removed the group's effective card.
+- Home resolution imports `node:path` instead of `node:path/win32`, which on
+  Linux/macOS silently scattered the user tier into a relative
+  `\home\<user>\.dsh` tree under the working directory. Home tests now
+  compose expectations with the platform `join`/`dirname` and assert POSIX
+  inputs resolve to POSIX outputs on every host.
+
+**Security**
+
+- `commit` re-checks under the tier lock that the store file has not been
+  swapped for a symlink between location validation and the read/history
+  backup, closing the TOCTOU window on the read path.
+- Snapshot directories are created `0o700`, matching the store and history
+  directories — snapshots contain whole tiers, personal data included.
+- `memory_arbitrate` takes its pre-operation snapshot only after the branch's
+  argument validation passes, so invalid calls no longer consume the limited
+  pre-op snapshot quota.
+
+**Housekeeping**
+
+- A commit that overwrites a disk file with no readable revision now warns
+  when the session had loaded a healthy store, making silent external
+  replacement diagnosable.
+- `gate.ts` `textOf` doc comment matches what the function does (case
+  handling lives in the regexes, not in the function).
+
 ## 1.0.2
 
 Security review follow-ups: the child consolidation mutation budget is now
@@ -29,7 +72,8 @@ again. No format or tool-surface changes.
 
 **Housekeeping**
 
-- Home resolution uses win32 path semantics; the home tests pass on any host.
+- Home resolution used win32 path semantics so the home tests passed on any
+  host — this regressed POSIX deployments and is reverted in Unreleased.
 - Build config disables sourcemaps so the committed `lib/` matches a fresh
   build exactly; scripts consistently use `pnpm run`.
 

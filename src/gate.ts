@@ -72,7 +72,7 @@ const PATTERNS: readonly Pattern[] = [
   { kind: 'constraint', weight: 40, re: /\bmust not\b|\bcannot be\b|\brequired to\b|\bis mandatory\b|\bgotcha\b|\bthe catch is\b|\bonly works if\b/i },
 ]
 
-/** Lower-case a string without allocating a new array of code points. */
+/** Extract a message's text blocks for pattern matching. Case handling lives in the regexes' `i` flags, not here. */
 function textOf(message: UserMessage): string {
   const blocks = Array.isArray(message?.content) ? message.content : []
   return blocks
