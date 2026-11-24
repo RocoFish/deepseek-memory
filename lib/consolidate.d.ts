@@ -76,6 +76,9 @@ export declare function validateAction(raw: unknown): {
  *   cached store is discarded without committing, which rolls its in-memory
  *   changes back to the on-disk state. A partially valid proposal therefore
  *   cannot leave a store in a state the model did not propose.
+ * - If the tier's store cannot even be opened — an unreadable or malformed
+ *   file — none of its actions are attempted; they all land in `rejected`
+ *   with the reason, and the remaining tiers still run.
  * - A tier that applies cleanly is committed before the next tier is touched,
  *   so a commit failure (a lock timeout, a `MEMORY_STORE_CONFLICT` from
  *   another process) affects only its own tier: earlier tiers stay committed,

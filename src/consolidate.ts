@@ -173,6 +173,9 @@ export function validateAction(raw: unknown): { action: ProposedAction } | { ref
  *   cached store is discarded without committing, which rolls its in-memory
  *   changes back to the on-disk state. A partially valid proposal therefore
  *   cannot leave a store in a state the model did not propose.
+ * - If the tier's store cannot even be opened — an unreadable or malformed
+ *   file — none of its actions are attempted; they all land in `rejected`
+ *   with the reason, and the remaining tiers still run.
  * - A tier that applies cleanly is committed before the next tier is touched,
  *   so a commit failure (a lock timeout, a `MEMORY_STORE_CONFLICT` from
  *   another process) affects only its own tier: earlier tiers stay committed,
@@ -204,12 +207,17 @@ export function applyActions(
   }
 
   for (const [tier, tierActions] of byTier) {
-    const store = runtime.store(tier)
     const tierApplied: string[] = []
     let failure: string | undefined
+    // The store is opened lazily, inside the try: a store that cannot be read
+    // (malformed file, over budget) throws from `runtime.store(tier)`, and
+    // that failure must reject the tier's actions like any other refusal —
+    // not escape and abort every remaining tier silently.
+    let store: ReturnType<MemoryRuntime['store']> | undefined
 
     for (const action of tierActions) {
       try {
+        store ??= runtime.store(tier)
         if (action.op === 'add') {
           const result = store.add({ text: action.text, tags: action.tags, origin: 'consolidator', now })
           tierApplied.push(result.created ? `add ${tier} ${result.entry.id}` : `add ${tier} ${result.entry.id} (already present)`)
@@ -222,7 +230,15 @@ export function applyActions(
         }
       } catch (error) {
         const detail = error instanceof MemoryError ? error.message : String(error)
-        failure = `${action.op} ${tier}: ${detail}`
+        if (store === undefined) {
+          // The tier's store could not even be opened (an unreadable or
+          // malformed file): every action in the tier fails the same way, so
+          // report each one instead of a single line that hides the rest of
+          // the proposal.
+          rejected.push(...tierActions.map(({ op }) => `${op} ${tier}: ${detail}`))
+        } else {
+          failure = `${action.op} ${tier}: ${detail}`
+        }
         break
       }
     }
@@ -238,7 +254,9 @@ export function applyActions(
     }
 
     try {
-      runtime.commit(tier, store)
+      // `failure === undefined` implies at least one action ran, which implies
+      // the store was opened.
+      runtime.commit(tier, store!)
       applied.push(...tierApplied)
     } catch (error) {
       // The commit is atomic per tier, so a failure here persisted nothing for

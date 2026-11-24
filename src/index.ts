@@ -44,7 +44,7 @@ import type { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
 // into a relative directory named like `\home\<user>\.dsh`. The win32-only
 // environment candidates (USERPROFILE, HOMEDRIVE/HOMEPATH) simply never match
 // on POSIX, which is the correct outcome there.
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { resolveConfig, type MemoryConfig } from './config.ts'
 import { consolidateTurn, type TurnCapture } from './consolidate.ts'
 import { createMemoryUserMessage } from './message.ts'
@@ -473,14 +473,21 @@ export function resolveHomeFromEnv(
     const parent = dirname(dirname(profileDir))
     if (parent !== '' && parent !== profileDir) return { home: parent, source: 'DSH_PROFILE_DIR parent' }
   }
+  // Windows-only variables. They are not expected on POSIX, but when they do
+  // appear there (Wine, a cross-compiled host, a manually exported shell),
+  // their values are Windows-shaped — `C:\Users\x` parses as one relative
+  // directory name under `node:path`, silently nesting the memory directory
+  // somewhere harmless-looking but wrong. Only a candidate that resolves to
+  // an absolute path on the *current* platform is trusted.
   const userProfile = env['USERPROFILE']
-  if (typeof userProfile === 'string' && userProfile.trim() !== '') {
+  if (typeof userProfile === 'string' && userProfile.trim() !== '' && isAbsolute(userProfile)) {
     return { home: join(userProfile, DSH_DIR_NAME), source: 'USERPROFILE/.dsh' }
   }
   const drive = env['HOMEDRIVE']
   const path = env['HOMEPATH']
   if (typeof drive === 'string' && drive.trim() !== '' && typeof path === 'string' && path.trim() !== '') {
-    return { home: join(`${drive}${path}`, DSH_DIR_NAME), source: 'HOMEDRIVE+HOMEPATH/.dsh' }
+    const windowsHome = `${drive}${path}`
+    if (isAbsolute(windowsHome)) return { home: join(windowsHome, DSH_DIR_NAME), source: 'HOMEDRIVE+HOMEPATH/.dsh' }
   }
   return { home: undefined, source: 'unset' }
 }

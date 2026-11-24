@@ -2,6 +2,27 @@
 
 Notable changes to `deepseek-memory`. Versions follow [semver](https://semver.org/).
 
+## 1.0.4
+
+Third audit round: three regressions and edge cases introduced or left behind
+by the 1.0.3 fixes.
+
+**Fixed**
+
+- `applyActions` opens the tier store lazily inside its try/catch: a tier
+  whose file cannot be read (malformed, over the size cap) now rejects every
+  action of that tier with the reason, instead of letting the open failure
+  escape and silently swallow the whole run's remaining actions.
+- `memory_arbitrate` `merge` detects the self-referential text collision
+  read-only, before the pre-op snapshot is taken: a refused merge no longer
+  consumes one of the limited pre-op snapshot slots, and no longer leaves the
+  colliding card behind in the tier's cached store.
+- Home resolution only trusts a `USERPROFILE` / `HOMEDRIVE`+`HOMEPATH`
+  candidate that is absolute under the current platform's path semantics, so
+  Windows-shaped values leaking onto POSIX (Wine, cross-compiled hosts,
+  manually exported shells) are skipped instead of nesting the memory
+  directory inside a literal `X:\...` folder under the working directory.
+
 ## 1.0.3
 
 Second audit round: eight findings from a full read of the source are fixed,

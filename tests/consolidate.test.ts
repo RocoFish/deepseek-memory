@@ -7,11 +7,11 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { MAX_ACTIONS_PER_RUN, applyActions, parseProposal, renderTranscript, validateAction } from '../src/consolidate.ts'
-import { MemoryRuntime } from '../src/runtime.ts'
+import { MemoryRuntime, STORE_FILE } from '../src/runtime.ts'
 import type { MemoryConfig } from '../src/config.ts'
 import { configFixture } from './fixtures.ts'
 
@@ -129,6 +129,30 @@ test('applyActions keeps a clean tier committed when another tier fails', () => 
     assert.match(rejected[0]!, /no memory entry with id/)
     assert.equal(box.runtime.store('project').size, 1)
     assert.equal(box.runtime.store('user').size, 0)
+  } finally { box.cleanup() }
+})
+
+test('applyActions rejects every action of a tier whose store cannot be opened, and still applies the others', () => {
+  const box = sandbox()
+  try {
+    // A malformed store file makes `runtime.store(tier)` itself throw. That
+    // failure must reject the tier's actions with the reason — not escape the
+    // per-tier loop and swallow the remaining tiers' actions silently.
+    const dir = box.runtime.tierDir('project')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, STORE_FILE), 'not json at all')
+    const { applied, rejected } = applyActions(box.runtime, [
+      { op: 'add', tier: 'project', text: 'doomed fact on a broken tier' },
+      { op: 'add', tier: 'project', text: 'second doomed fact, same tier' },
+      { op: 'add', tier: 'user', text: 'a healthy user tier fact' },
+    ], 1000)
+    assert.equal(applied.length, 1)
+    assert.match(applied[0]!, /^add user /)
+    assert.equal(rejected.length, 2)
+    assert.match(rejected[0]!, /^add project: /)
+    assert.match(rejected[0]!, /could not be parsed/)
+    assert.match(rejected[1]!, /^add project: /)
+    assert.equal(box.runtime.store('user').size, 1)
   } finally { box.cleanup() }
 })
 

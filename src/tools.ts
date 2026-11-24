@@ -24,7 +24,7 @@ import { applyRestore, diffRestore } from './restore.ts'
 import { findScopeViolations } from './scope.ts'
 import { createSnapshot, listSnapshots, loadSnapshot, readCurrentStores, snapshotBaseDir } from './snapshot.ts'
 import type { MemoryEntry, MemoryScope, MemoryTier } from './store.ts'
-import { MemoryError, TIER_SCOPES } from './store.ts'
+import { MemoryError, TIER_SCOPES, entryId } from './store.ts'
 import type { MemoryRuntime } from './runtime.ts'
 
 /** Tools accept an explicit tier, or `auto` to pick the most specific live one. */
@@ -486,6 +486,7 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
           if (typeof args.text !== 'string' || args.text.trim() === '') {
             throw new MemoryError('merge needs the merged fact as "text".', 'MEMORY_EMPTY_ENTRY')
           }
+          const mergedText: string = args.text
           const sources = ids.map(id => findTiered(runtime, id))
           const targetTier = sources[0]!.tier
           if (sources.some(({ tier }) => tier !== targetTier)) {
@@ -494,10 +495,27 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
               'MEMORY_MERGE_CROSS_TIER',
             )
           }
-          snapshotId = snapshot()
           const first = sources[0]!.entry
           const store = runtime.store(targetTier)
-          const { entry: merged, created } = store.add({
+          // Detect the self-referential merge before the pre-op snapshot is
+          // taken: an invalid call must not consume one of the limited
+          // pre-op snapshot slots. The card id derives from the text alone
+          // (entryId), so the collision can be checked read-only, without
+          // mutating the store first.
+          const collision = store.entries().find(entry => entry.id === entryId(mergedText))
+          if (collision !== undefined) {
+            // The merged text collides with a card that already exists — possibly
+            // one of the merge sources themselves. Adopting it would supersede
+            // the card with itself (a self-referential loop in which the group's
+            // effective card disappears from the arbitration view), so refuse and
+            // point at adopt, which is the operation that was actually intended.
+            throw new MemoryError(
+              `the merged text is already card ${collision.id}, so merging would supersede a card with itself. Use adopt on ${collision.id} instead, or merge into different wording.`,
+              'MEMORY_MERGE_SELF_REFERENCE',
+            )
+          }
+          snapshotId = snapshot()
+          const { entry: merged } = store.add({
             text: args.text,
             tags: [...new Set(sources.flatMap(({ entry }) => entry.tags))],
             origin: 'user',
@@ -507,17 +525,6 @@ export function createMemoryTools(runtime: MemoryRuntime, diagnostics?: MemoryDi
             confidence: 'user-confirmed',
             source: 'user',
           })
-          if (!created) {
-            // The merged text collides with a card that already exists — possibly
-            // one of the merge sources themselves. Adopting it would supersede
-            // the card with itself (a self-referential loop in which the group's
-            // effective card disappears from the arbitration view), so refuse and
-            // point at adopt, which is the operation that was actually intended.
-            throw new MemoryError(
-              `the merged text is already card ${merged.id}, so merging would supersede a card with itself. Use adopt on ${merged.id} instead, or merge into different wording.`,
-              'MEMORY_MERGE_SELF_REFERENCE',
-            )
-          }
           store.adjudicate({ id: merged.id, supersedes: sources.map(({ entry }) => entry.id), origin: 'user', now: Date.now() })
           for (const { entry } of sources) {
             store.adjudicate({ id: entry.id, status: 'superseded', origin: 'user', now: Date.now() })

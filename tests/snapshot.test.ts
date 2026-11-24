@@ -325,6 +325,13 @@ test('memory_arbitrate merge refuses to merge into the text of a card that alrea
       /already card .*use adopt/i,
     )
 
+    // The collision is detected read-only before the pre-op snapshot is taken:
+    // a refused merge must not consume one of the limited pre-op snapshot slots.
+    assert.ok(!listSnapshots(box.runtime).some(meta => meta.kind === 'pre-op'), 'the refused merge took no pre-op snapshot')
+    // Nor may it leave the colliding card behind in the tier's cached store:
+    // nothing was committed, so the cache must look exactly like the disk.
+    assert.equal(box.runtime.store('project').entries().length, 2, 'the refused merge leaves no uncommitted card in the cache')
+
     const after = new MemoryRuntime(config, box.home, box.cwd, () => 2000)
     const entries = after.store('project').entries()
     assert.equal(entries.length, 2, 'no merged card is created')
