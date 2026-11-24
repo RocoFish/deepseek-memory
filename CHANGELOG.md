@@ -32,6 +32,14 @@ re-read of the source (typecheck clean, 154/154 tests).
   card, so a hand edit (or another process's commit) between sessions is seen
   by the ruling itself instead of surfacing as a mid-write
   `MEMORY_STORE_CONFLICT` refusal after the ruling was already made.
+- Home resolution only trusts a `USERPROFILE` / `HOMEDRIVE`+`HOMEPATH`
+  candidate that is drive-absolute on Windows (`C:\...` or `C:/...`), not
+  merely `path.isAbsolute`: `path.win32.isAbsolute('/home/x')` is true,
+  because a leading separator is root-relative on Windows, so the 1.0.4
+  platform-semantics guard still let a POSIX-shaped value through on Windows
+  and resolved the home to `\home\x\.dsh` under the working directory. This
+  was invisible until the pnpm 10 fix un-reded CI: the Windows check job now
+  runs the suite and had this test failing at exit.
 
 ## 1.0.4
 

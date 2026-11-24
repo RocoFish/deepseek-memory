@@ -446,6 +446,24 @@ export type HomeSource =
   | 'unset'
 
 /**
+ * Whether a `USERPROFILE` / `HOMEDRIVE`+`HOMEPATH` candidate may supply the
+ * home on this platform.
+ *
+ * On Windows the candidate must be drive-absolute (`C:\...` or `C:/...`):
+ * `path.win32.isAbsolute('/home/x')` is also true, because Windows treats a
+ * leading separator as root-relative to the current drive — so `isAbsolute`
+ * alone would accept a POSIX-shaped value and `join` would nest the memory
+ * directory at `\home\x\.dsh` under the working directory. On POSIX the
+ * candidate must be absolute under POSIX rules, which the Windows shapes
+ * (`C:\Users\x`) never are, so a leaked Windows value is skipped there too.
+ */
+function isWindowsHomeCandidate(candidate: string): boolean {
+  return process.platform === 'win32'
+    ? /^[A-Za-z]:[\\/]/.test(candidate)
+    : isAbsolute(candidate)
+}
+
+/**
  * The environment lookup the home resolver performs, as a pure function of an
  * environment map.
  *
@@ -479,15 +497,21 @@ export function resolveHomeFromEnv(
   // directory name under `node:path`, silently nesting the memory directory
   // somewhere harmless-looking but wrong. Only a candidate that resolves to
   // an absolute path on the *current* platform is trusted.
+  //
+  // The platform check is deliberately stricter than `isAbsolute` alone:
+  // `path.win32.isAbsolute('/home/x')` is true (a root-relative path is
+  // absolute on Windows), which would let a POSIX-shaped value through on
+  // Windows and produce `\\home\\x\\.dsh` next to the working directory.
+  // A drive-letter root is the only Windows shape these variables may carry.
   const userProfile = env['USERPROFILE']
-  if (typeof userProfile === 'string' && userProfile.trim() !== '' && isAbsolute(userProfile)) {
+  if (typeof userProfile === 'string' && userProfile.trim() !== '' && isWindowsHomeCandidate(userProfile)) {
     return { home: join(userProfile, DSH_DIR_NAME), source: 'USERPROFILE/.dsh' }
   }
   const drive = env['HOMEDRIVE']
   const path = env['HOMEPATH']
   if (typeof drive === 'string' && drive.trim() !== '' && typeof path === 'string' && path.trim() !== '') {
     const windowsHome = `${drive}${path}`
-    if (isAbsolute(windowsHome)) return { home: join(windowsHome, DSH_DIR_NAME), source: 'HOMEDRIVE+HOMEPATH/.dsh' }
+    if (isWindowsHomeCandidate(windowsHome)) return { home: join(windowsHome, DSH_DIR_NAME), source: 'HOMEDRIVE+HOMEPATH/.dsh' }
   }
   return { home: undefined, source: 'unset' }
 }
