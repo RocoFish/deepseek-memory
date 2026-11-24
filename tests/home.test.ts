@@ -42,9 +42,13 @@ test('DSH_HOME wins over every derived candidate', () => {
 test('a blank DSH_HOME is treated as unset, not as an empty home', () => {
   // An empty string would otherwise make `join('', 'memory')` a path relative to
   // the process working directory — the exact scattering the tier exists to avoid.
+  // The Windows-style USERPROFILE fallback only holds on Windows; on POSIX it is
+  // not an absolute path and the candidate is skipped.
   assert.deepEqual(
     resolveHomeFromEnv({ DSH_HOME: '   ', USERPROFILE: 'X:\\Users\\someone' }),
-    { home: join('X:\\Users\\someone', '.dsh'), source: 'USERPROFILE/.dsh' },
+    process.platform === 'win32'
+      ? { home: join('X:\\Users\\someone', '.dsh'), source: 'USERPROFILE/.dsh' }
+      : { home: undefined, source: 'unset' },
   )
 })
 
@@ -62,14 +66,20 @@ test('the profile directory supplies the home when DSH_HOME is absent', () => {
 test('USERPROFILE supplies the standard Windows home directory', () => {
   assert.deepEqual(
     resolveHomeFromEnv({ USERPROFILE: 'X:\\Users\\someone', HOMEDRIVE: 'X:', HOMEPATH: '\\ignored' }),
-    { home: join('X:\\Users\\someone', '.dsh'), source: 'USERPROFILE/.dsh' },
+    process.platform === 'win32'
+      ? { home: join('X:\\Users\\someone', '.dsh'), source: 'USERPROFILE/.dsh' }
+      // A Windows-style value is not absolute under POSIX `node:path`; honoring
+      // it would nest the memory directory inside a literal `X:\...` folder.
+      : { home: undefined, source: 'unset' },
   )
 })
 
 test('HOMEDRIVE plus HOMEPATH is the last environment resort', () => {
   assert.deepEqual(
     resolveHomeFromEnv({ HOMEDRIVE: 'X:', HOMEPATH: '\\Users\\someone' }),
-    { home: join('X:\\Users\\someone', '.dsh'), source: 'HOMEDRIVE+HOMEPATH/.dsh' },
+    process.platform === 'win32'
+      ? { home: join('X:\\Users\\someone', '.dsh'), source: 'HOMEDRIVE+HOMEPATH/.dsh' }
+      : { home: undefined, source: 'unset' },
   )
 })
 
@@ -84,7 +94,11 @@ test('POSIX paths resolve to POSIX paths on every platform', () => {
   )
   assert.deepEqual(
     resolveHomeFromEnv({ USERPROFILE: '/home/someone' }),
-    { home: '/home/someone/.dsh', source: 'USERPROFILE/.dsh' },
+    // A POSIX-style value is absolute on POSIX; on Windows it is not and the
+    // candidate is skipped rather than joined into a relative path.
+    process.platform === 'win32'
+      ? { home: undefined, source: 'unset' }
+      : { home: '/home/someone/.dsh', source: 'USERPROFILE/.dsh' },
   )
 })
 
