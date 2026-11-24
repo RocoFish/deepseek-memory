@@ -84,10 +84,5 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "pnpm": {
-    "overrides": {
-      "zod": "4.6.6"
-    }
   }
 }

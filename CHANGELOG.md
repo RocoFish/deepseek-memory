@@ -2,6 +2,37 @@
 
 Notable changes to `deepseek-memory`. Versions follow [semver](https://semver.org/).
 
+## Unreleased
+
+Fourth audit round: two medium findings and two edge cases from a full
+re-read of the source (typecheck clean, 154/154 tests).
+
+**Fixed**
+
+- Snapshot ids are pinned to the exact format `createSnapshot` produces
+  (`kind-ISO-timestamp-8hexsuffix`) instead of a loose `kind-...suffix`
+  pattern, so an id like `daily-1/../../../../tmp/evil0000dead` no longer
+  passes validation and `loadSnapshot` can no longer be steered outside the
+  snapshots directory. On top of the stricter pattern, `loadSnapshot`
+  re-resolves the real path of the snapshot file and refuses to read one that
+  resolves outside the snapshots directory, closing the symlink-swap hole the
+  same way the store guards every commit.
+- The `pnpm.overrides` pin moved from `package.json` to
+  `pnpm-workspace.yaml` `overrides`: pnpm 10 removed support for the
+  package.json field and fails every install and `pnpm run` with
+  `ERR_PNPM_VERIFY_DEPS_BEFORE_RUN` while it is present, which had the CI
+  check workflow red on pnpm 10. The zod pin is unchanged.
+- `memory_arbitrate confirm-import` no longer offers `personal-topic` as a
+  target scope. Prompt injection resolves with no subjects, so a
+  topic-scoped card would consume an injection slot yet never render —
+  "confirmed but invisible". Imported cards are confirmed into
+  `project` or `personal-global`, both always visible. The refusal is
+  documented in the tool description and both READMEs.
+- `memory_arbitrate` refreshes the runtime store cache before resolving any
+  card, so a hand edit (or another process's commit) between sessions is seen
+  by the ruling itself instead of surfacing as a mid-write
+  `MEMORY_STORE_CONFLICT` refusal after the ruling was already made.
+
 ## 1.0.4
 
 Third audit round: three regressions and edge cases introduced or left behind

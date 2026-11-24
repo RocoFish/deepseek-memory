@@ -76,6 +76,11 @@ test('snapshot ids are validated, never concatenated into paths', () => {
     box.runtime.commit('project')
     assert.throws(() => loadSnapshot(box.runtime, '../../etc/passwd'), /not a snapshot id/)
     assert.throws(() => loadSnapshot(box.runtime, 'manual-2099-01-01T00-00-00-000Z-deadbeef'), /no snapshot with id/)
+    // The exact shape the previous loose pattern accepted: kind-1/.../*.json
+    // looks id-like but is a traversal attempt and must be rejected by the
+    // strict format pin, not just by luck.
+    assert.throws(() => loadSnapshot(box.runtime, 'daily-1/../../../../tmp/evil0000dead'), /not a snapshot id/)
+    assert.throws(() => loadSnapshot(box.runtime, 'manual-2026-01-01T00-00-00-000Z-deadbeef.json/../../x'), /not a snapshot id/)
   } finally { box.cleanup() }
 })
 
@@ -337,6 +342,72 @@ test('memory_arbitrate merge refuses to merge into the text of a card that alrea
     assert.equal(entries.length, 2, 'no merged card is created')
     assert.ok(entries.every(entry => entry.status === 'active'), 'neither source is superseded')
     assert.ok(entries.every(entry => entry.supersedes.length === 0), 'no self-referential supersedes chain')
+  } finally { box.cleanup() }
+})
+
+test('memory_arbitrate confirm-import refuses personal-topic and accepts personal-global', async () => {
+  const box = sandbox()
+  try {
+    // Imported cards enter through the restore path, not store.add (which
+    // refuses the scope by design) — upsertRestored is that restore path.
+    box.runtime.store('user').upsertRestored({
+      id: 'i1a2b3c4',
+      scope: 'imported',
+      subject: 'preference',
+      key: 'editor',
+      text: 'prefers VS Code',
+      status: 'active',
+      confidence: 'medium',
+      source: 'user',
+      supersedes: [],
+      tags: [],
+      createdAt: 1,
+      updatedAt: 1,
+      origin: 'user',
+    })
+    box.runtime.commit('user')
+
+    await assert.rejects(
+      tool(box.runtime, 'memory_arbitrate').execute({ action: 'confirm-import', ids: ['i1a2b3c4'], scope: 'personal-topic' }, undefined),
+      /project.*personal-global/,
+      'personal-topic is not offered: prompt injection passes no subjects, so a topic card would consume an injection slot yet never render',
+    )
+
+    const result = await tool(box.runtime, 'memory_arbitrate').execute({ action: 'confirm-import', ids: ['i1a2b3c4'], scope: 'personal-global' }, undefined)
+    assert.match(String(result), /Confirmed/)
+
+    const after = new MemoryRuntime(config, box.home, box.cwd, () => 2000)
+    const confirmed = after.store('user').entries().find(entry => entry.id === 'i1a2b3c4')!
+    assert.equal(confirmed.scope, 'personal-global')
+    assert.equal(confirmed.status, 'active')
+    assert.equal(confirmed.confidence, 'user-confirmed')
+  } finally { box.cleanup() }
+})
+
+test('memory_arbitrate refreshes the store cache before ruling, so a hand edit on disk is seen, not conflicted', async () => {
+  const box = sandbox()
+  try {
+    const winner = box.runtime.store('project').add({ text: 'this repo tests with node:test', origin: 'user', now: 1, subject: 'deepseek-memory', key: 'test-runner' })
+    box.runtime.commit('project')
+    const loser = box.runtime.store('user').add({ text: 'deepseek-memory tests with vitest', origin: 'user', now: 1, subject: 'deepseek-memory', key: 'test-runner' })
+    box.runtime.commit('user')
+
+    // A second process (or a hand edit) commits the user tier while this
+    // session's cache still holds the old copy.
+    const userFile = join(box.home, USER_MEMORY_DIR, STORE_FILE)
+    const onDisk = JSON.parse(readFileSync(userFile, 'utf8'))
+    onDisk.revision += 1
+    writeFileSync(userFile, JSON.stringify(onDisk, undefined, 2))
+
+    // Pre-fix this threw MEMORY_STORE_CONFLICT only at commit time, after the
+    // ruling was already made against stale state. The refresh at tool start
+    // means the ruling itself sees the on-disk truth and commits cleanly.
+    const result = await tool(box.runtime, 'memory_arbitrate').execute({ action: 'adopt', ids: [winner.entry.id] }, undefined)
+    assert.match(String(result), /Adopted/)
+
+    const after = new MemoryRuntime(config, box.home, box.cwd, () => 2000)
+    assert.equal(after.store('project').entries().find(entry => entry.id === winner.entry.id)!.confidence, 'user-confirmed')
+    assert.equal(after.store('user').entries().find(entry => entry.id === loser.entry.id)!.status, 'superseded')
   } finally { box.cleanup() }
 })
 
